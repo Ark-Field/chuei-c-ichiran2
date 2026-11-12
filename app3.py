@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（納期確定時赤枠強調対応）")
+st.title("📊 受注一覧表②（行全体赤網掛け強調対応）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -157,7 +157,7 @@ def to_excel_bytes(df):
     output.seek(0)
     return output
 
-# --- 受注一覧表②のPDF生成（納期「確定」時赤枠強調対応） ---
+# --- 受注一覧表②のPDF生成（該当行全体を赤網掛け） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
@@ -167,12 +167,11 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.white, alignment=1)
     
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.HexColor("#0F172A"))
-    # 納期「確定」や「急」のとき用の赤文字スタイル
     red_cell_style = ParagraphStyle("RedCell", parent=cell_style, textColor=colors.HexColor("#DC2626"))
 
     group_label_str = "顧客グループ別（出版社順）" if group_type == "publisher" else "判型グループ別（判型順）"
     elements = [
-        Paragraph(f"<b>受注一覧表②（{group_label_str}・納期確定時赤枠強調）</b>", title_style),
+        Paragraph(f"<b>受注一覧表②（{group_label_str}・行全体赤網掛け強調）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 6),
@@ -194,10 +193,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         "8P": 26, "4P": 26, "2P": 26, "印刷所": 45, "折": 26
     }
     col_widths = [width_mapping.get(c, 40) for c in available_top_cols]
-
-    # インデックスを特定
-    idx_102 = available_top_cols.index("納期上/中/下") if "納期上/中/下" in available_top_cols else None
-    idx_103 = available_top_cols.index("急ぎ") if "急ぎ" in available_top_cols else None
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
@@ -224,44 +219,36 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
         row_count = len(sub_df)
         for i, (_, row) in enumerate(sub_df.iterrows()):
+            val_102_check = str(row.get("納期上/中/下", ""))
+            val_103_check = str(row.get("急ぎ", ""))
+            is_urgent = (val_102_check == "確定" or val_103_check == "急")
+
             row_cells_1 = []
-            for c_idx, c in enumerate(available_top_cols):
+            for c in available_top_cols:
                 val_str = str(row[c]) if pd.notna(row[c]) else ""
-                
-                # 「納期上/中/下」が「確定」のときは赤字スタイルを適用
-                if c == "納期上/中/下" and val_str == "確定":
-                    row_cells_1.append(Paragraph(f"<b>{val_str}</b>", red_cell_style))
-                elif c == "急ぎ" and val_str == "急":
+                if is_urgent and (c in ["納期上/中/下", "急ぎ"]):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", red_cell_style))
                 else:
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", cell_style))
             
             table_data.append(row_cells_1)
             
-            # 2段目（備考）
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
             memo_cell = Paragraph(f"<b>備考: {memo_val}</b>", cell_style)
             row_cells_2 = [memo_cell] + [Paragraph("", cell_style) for _ in range(len(available_top_cols) - 1)]
             table_data.append(row_cells_2)
 
-            # テーブルスタイルの行インデックス計算
             row_1_idx = 1 + (i * 2)
             memo_row_idx = row_1_idx + 1
 
-            # 納期「確定」の場合、該当セルの枠（BOX）を赤く強調
-            val_102_check = str(row.get("納期上/中/下", ""))
-            if val_102_check == "確定" and idx_102 is not None:
-                t_style.append(("BOX", (idx_102, row_1_idx), (idx_102, row_1_idx), 1.5, colors.HexColor("#DC2626")))
-                t_style.append(("BACKGROUND", (idx_102, row_1_idx), (idx_102, row_1_idx), colors.HexColor("#FEE2E2"))) # 薄い赤背景
+            # 条件合致時は1段目・2段目（備考行）の背景全体を薄い赤（赤網掛け）にする
+            if is_urgent:
+                t_style.append(("BACKGROUND", (0, row_1_idx), (-1, row_1_idx), colors.HexColor("#FEE2E2")))
+                t_style.append(("BACKGROUND", (0, memo_row_idx), (-1, memo_row_idx), colors.HexColor("#FEE2E2")))
+            else:
+                t_style.append(("BACKGROUND", (0, memo_row_idx), (-1, memo_row_idx), colors.HexColor("#F1F5F9")))
 
-            val_103_check = str(row.get("急ぎ", ""))
-            if val_103_check == "急" and idx_103 is not None:
-                t_style.append(("BOX", (idx_103, row_1_idx), (idx_103, row_1_idx), 1.5, colors.HexColor("#DC2626")))
-                t_style.append(("BACKGROUND", (idx_103, row_1_idx), (idx_103, row_1_idx), colors.HexColor("#FEE2E2")))
-
-            # 2段目（備考）のスパン設定
             t_style.append(("SPAN", (0, memo_row_idx), (-1, memo_row_idx)))
-            t_style.append(("BACKGROUND", (0, memo_row_idx), (-1, memo_row_idx), colors.HexColor("#F1F5F9")))
 
         t = Table(table_data, colWidths=col_widths, repeatRows=1)
         t.setStyle(TableStyle(t_style))
@@ -351,7 +338,7 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（納期確定時赤枠強調対応）")
+st.header("📋 受注一覧表②（行全体赤網掛け強調管理）")
 
 with st.expander("🔍 検索条件・出力グループ軸の設定はこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
