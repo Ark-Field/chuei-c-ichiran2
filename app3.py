@@ -157,19 +157,21 @@ def to_excel_bytes(df):
     output.seek(0)
     return output
 
-# --- 受注一覧表②のPDF生成（指定の文字幅と太字対応） ---
+# --- 受注一覧表②のPDF生成（文字を太字・濃く表示） ---
 def generate_order_pdf_v2(df):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=15, leading=17, textColor=colors.HexColor("#1E3A8A"))
     header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5, leading=9, textColor=colors.white, alignment=1)
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.HexColor("#1E293B"))
+    
+    # セル内の文字を太字（<b>）にして濃く表示
+    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.HexColor("#0F172A"))
 
     elements = [
         Paragraph("<b>受注一覧表②（1行フラット・高密度管理）</b>", title_style),
         Spacer(1, 4),
-        Paragraph(f"<font size=8 color='#64748B'>発行日: {date.today().strftime('%Y年%m月%d日')}</font>", styles["Normal"]),
+        Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 8),
     ]
 
@@ -182,7 +184,12 @@ def generate_order_pdf_v2(df):
 
     table_data = [[Paragraph(f"<b>{c}</b>", header_style) for c in available_cols]]
     for _, row in df.iterrows():
-        table_data.append([Paragraph(str(row[c]) if pd.notna(row[c]) else "", cell_style) for c in available_cols])
+        row_cells = []
+        for c in available_cols:
+            val_str = str(row[c]) if pd.notna(row[c]) else ""
+            # セル内容を太字タグで囲む
+            row_cells.append(Paragraph(f"<b>{val_str}</b>", cell_style))
+        table_data.append(row_cells)
 
     width_mapping = {
         "受注番号": 52, "納期": 58, "出版社名": 72, "書名": 120, "刷数": 28, "回数": 28,
@@ -200,7 +207,7 @@ def generate_order_pdf_v2(df):
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CBD5E1")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),  # 罫線も少し濃く設定
     ]))
     elements.append(t)
 
@@ -214,7 +221,7 @@ def generate_order_pdf_v2(df):
 query_params = st.query_params
 url_order_no = query_params.get("ord", None)
 
-def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-1"):
+def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-52"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     params = {}
@@ -255,6 +262,19 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
                 ).strip()
                 parsed_records.append(merged_body)
             
+            if start_date and end_date:
+                start_str = start_date.strftime("%Y-%m-%d")
+                end_str = end_date.strftime("%Y-%m-%d")
+                filtered = []
+                for r in parsed_records:
+                    raw_d = clean_val(r.get(date_field, ""))
+                    if not raw_d:
+                        continue
+                    d_str = raw_d.replace("/", "-")[:10]
+                    if len(d_str) == 10 and start_str <= d_str <= end_str:
+                        filtered.append(r)
+                parsed_records = filtered
+
             return parsed_records
         else:
             st.error(f"❌ APIエラー ({response.status_code}): {response.text}")
@@ -269,7 +289,7 @@ if "api_records" not in st.session_state or url_order_no:
     else:
         default_start = date.today()
         default_end = default_start + timedelta(days=14)
-        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, date_field="field-1")
+        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, date_field="field-52")
 
 # ==========================================
 # 6. メイン画面
@@ -277,6 +297,9 @@ if "api_records" not in st.session_state or url_order_no:
 st.header("📋 受注一覧表②（1行フラット・高密度管理）")
 
 with st.expander("🔍 検索条件の変更・絞り込みはこちら", expanded=bool(not url_order_no)):
+    search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
+    target_date_field = "field-52" if "納期" in search_date_type else "field-1"
+
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         t1_start = st.date_input("期間（開始）", value=date.today(), key="v2_s")
@@ -290,7 +313,10 @@ if search_clicked:
     st.query_params.clear()
     with st.spinner("@ポケットからデータを取得中..."):
         st.session_state["api_records"] = fetch_pocket_records(
-            start_date=t1_start, end_date=t1_end, target_publisher=publisher_input if publisher_input else None
+            start_date=t1_start, 
+            end_date=t1_end, 
+            target_publisher=publisher_input if publisher_input else None,
+            date_field=target_date_field
         )
     st.rerun()
 
@@ -319,7 +345,6 @@ if api_records:
         h_folding = clean_val(r.get("field-16", ""))
         h_memo = clean_val(r.get("field-45", ""))
         
-        # 刷数 (field-28), 回数 (field-96)
         h_print_count = clean_val(r.get("field-28", ""))
         h_times_count = clean_val(r.get("field-96", ""))
         
@@ -378,8 +403,8 @@ if api_records:
             "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
             "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
             "書名": st.column_config.TextColumn("書名", disabled=True),
-            "刷数": st.column_config.TextColumn("刷数 (field-28)"),
-            "回数": st.column_config.TextColumn("回数 (field-96)"),
+            "刷数": st.column_config.TextColumn("刷数"),
+            "回数": st.column_config.TextColumn("回数"),
             "単価": st.column_config.TextColumn("単価", disabled=True),
             "製本数": st.column_config.TextColumn("製本数", disabled=True),
             "製品預かり": st.column_config.TextColumn("製品預かり", disabled=True),
