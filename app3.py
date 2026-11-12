@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（1行フラット・高密度管理）")
+st.title("📊 受注一覧表②（判型グループ・納期/顧客順管理）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -157,59 +157,85 @@ def to_excel_bytes(df):
     output.seek(0)
     return output
 
-# --- 受注一覧表②のPDF生成（文字を太字・濃く表示） ---
+# --- 受注一覧表②のPDF生成（判型グループ別・納期/顧客順・備考2段） ---
 def generate_order_pdf_v2(df):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=15, leading=17, textColor=colors.HexColor("#1E3A8A"))
+    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=11, leading=14, textColor=colors.HexColor("#1E3A8A"), spaceBefore=10, spaceAfter=4)
     header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5, leading=9, textColor=colors.white, alignment=1)
-    
-    # セル内の文字を太字（<b>）にして濃く表示
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.HexColor("#0F172A"))
 
     elements = [
-        Paragraph("<b>受注一覧表②（1行フラット・高密度管理）</b>", title_style),
+        Paragraph("<b>受注一覧表②（判型グループ別・納期/顧客順・備考2段）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
-        Spacer(1, 8),
+        Spacer(1, 6),
     ]
 
-    target_cols = [
+    top_cols = [
         "受注番号", "納期", "出版社名", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
-        "表紙日付", "カード日付", "カバー日付", "帯日付", "備考"
+        "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
-    available_cols = [c for c in target_cols if c in df.columns]
-
-    table_data = [[Paragraph(f"<b>{c}</b>", header_style) for c in available_cols]]
-    for _, row in df.iterrows():
-        row_cells = []
-        for c in available_cols:
-            val_str = str(row[c]) if pd.notna(row[c]) else ""
-            # セル内容を太字タグで囲む
-            row_cells.append(Paragraph(f"<b>{val_str}</b>", cell_style))
-        table_data.append(row_cells)
+    available_top_cols = [c for c in top_cols if c in df.columns]
 
     width_mapping = {
         "受注番号": 52, "納期": 58, "出版社名": 72, "書名": 120, "刷数": 28, "回数": 28,
         "単価": 38, "製本数": 45, "製品預かり": 45, "総頁数": 42, "32P": 28, "16P": 28,
         "8P": 28, "4P": 28, "2P": 28, "印刷所": 48, "折本日": 58, "折": 28,
         "無線日": 58, "三方日": 58, "仕上日": 58, "入品日": 58, "表紙日付": 58,
-        "カード日付": 58, "カバー日付": 58, "帯日付": 58, "備考": 80
+        "カード日付": 58, "カバー日付": 58, "帯日付": 58
     }
-    col_widths = [width_mapping.get(c, 45) for c in available_cols]
+    col_widths = [width_mapping.get(c, 45) for c in available_top_cols]
 
-    t = Table(table_data, colWidths=col_widths, repeatRows=1)
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
-        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),  # 罫線も少し濃く設定
-    ]))
-    elements.append(t)
+    # 判型ごとにグループ化してテーブルを作成
+    group_col = "判型"
+    groups = df[group_col].unique() if group_col in df.columns else [""]
+
+    for idx, g_val in enumerate(groups):
+        if idx > 0:
+            elements.append(PageBreak())
+        
+        g_name_display = g_val if g_val else "（判型未設定）"
+        elements.append(Paragraph(f"<b>■ 判型: {g_name_display}</b>", group_header_style))
+        
+        sub_df = df[df[group_col] == g_val] if g_val else df
+
+        table_data = []
+        header_row = [Paragraph(f"<b>{c}</b>", header_style) for c in available_top_cols]
+        table_data.append(header_row)
+
+        for _, row in sub_df.iterrows():
+            row_cells_1 = [Paragraph(f"<b>{str(row[c]) if pd.notna(row[c]) else ''}</b>", cell_style) for c in available_top_cols]
+            table_data.append(row_cells_1)
+            
+            memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
+            memo_cell = Paragraph(f"<b>備考: {memo_val}</b>", cell_style)
+            row_cells_2 = [memo_cell] + [Paragraph("", cell_style) for _ in range(len(available_top_cols) - 1)]
+            table_data.append(row_cells_2)
+
+        t = Table(table_data, colWidths=col_widths, repeatRows=1)
+        
+        t_style = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
+        ]
+
+        row_count = len(sub_df)
+        for i in range(row_count):
+            memo_row_idx = 1 + (i * 2) + 1
+            t_style.append(("SPAN", (0, memo_row_idx), (-1, memo_row_idx)))
+            t_style.append(("BACKGROUND", (0, memo_row_idx), (-1, memo_row_idx), colors.HexColor("#F1F5F9")))
+
+        t.setStyle(TableStyle(t_style))
+        elements.append(t)
+        elements.append(Spacer(1, 8))
 
     doc.build(elements)
     buffer.seek(0)
@@ -294,7 +320,7 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（1行フラット・高密度管理）")
+st.header("📋 受注一覧表②（判型グループ・納期/顧客順管理）")
 
 with st.expander("🔍 検索条件の変更・絞り込みはこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
@@ -332,6 +358,7 @@ if api_records:
         h_due = parse_date_safe(r.get("field-52"))
         h_pub = clean_val(r.get("field-8", ""))
         h_title = clean_val(r.get("field-13", ""))
+        h_format = clean_val(r.get("field-23", ""))  # 判型
         h_qty = clean_val(r.get("field-4", ""))
         h_price = clean_val(r.get("field-5", ""))
         h_cust_keeping = clean_val(r.get("field-81", ""))
@@ -360,9 +387,10 @@ if api_records:
         flat_data.append({
             "更新": False,
             "_record_idx": record_idx,
-            "受注番号": h_ord_no,
+            "判型": h_format,
             "納期": h_due,
             "出版社名": h_pub,
+            "受注番号": h_ord_no,
             "書名": h_title,
             "刷数": h_print_count,
             "回数": h_times_count,
@@ -391,6 +419,10 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
+    # 判型順 ➔ 納期順 ➔ 出版社名順 でソート
+    sort_keys = ["判型", "納期", "出版社名"]
+    df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True], na_position="last").reset_index(drop=True)
+
     edited_v2_df = st.data_editor(
         df_v2,
         num_rows="fixed",
@@ -399,9 +431,10 @@ if api_records:
         column_config={
             "更新": st.column_config.CheckboxColumn("更新", required=True),
             "_record_idx": None,
-            "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
+            "判型": st.column_config.TextColumn("判型", disabled=True),
             "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
             "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
+            "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
             "書名": st.column_config.TextColumn("書名", disabled=True),
             "刷数": st.column_config.TextColumn("刷数"),
             "回数": st.column_config.TextColumn("回数"),
