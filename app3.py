@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（判型グループ・納期/顧客順管理）")
+st.title("📊 受注一覧表②（判型グループ・日付3文字幅・連続出力）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -157,18 +157,18 @@ def to_excel_bytes(df):
     output.seek(0)
     return output
 
-# --- 受注一覧表②のPDF生成（判型グループ別・納期/顧客順・備考2段） ---
+# --- 受注一覧表②のPDF生成（日付欄3文字幅・強制改ページなしの連続出力） ---
 def generate_order_pdf_v2(df):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=15, leading=17, textColor=colors.HexColor("#1E3A8A"))
-    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=11, leading=14, textColor=colors.HexColor("#1E3A8A"), spaceBefore=10, spaceAfter=4)
-    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5, leading=9, textColor=colors.white, alignment=1)
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.HexColor("#0F172A"))
+    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=10, leading=13, textColor=colors.HexColor("#1E3A8A"), spaceBefore=6, spaceAfter=2)
+    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.white, alignment=1)
+    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.HexColor("#0F172A"))
 
     elements = [
-        Paragraph("<b>受注一覧表②（判型グループ別・納期/顧客順・備考2段）</b>", title_style),
+        Paragraph("<b>受注一覧表②（判型グループ・日付3文字幅・連続出力）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 6),
@@ -181,23 +181,21 @@ def generate_order_pdf_v2(df):
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
+    # 日付フィールドは3文字幅相当（約38px）、その他のフィールド幅
     width_mapping = {
-        "受注番号": 52, "納期": 58, "出版社名": 72, "書名": 120, "刷数": 28, "回数": 28,
-        "単価": 38, "製本数": 45, "製品預かり": 45, "総頁数": 42, "32P": 28, "16P": 28,
-        "8P": 28, "4P": 28, "2P": 28, "印刷所": 48, "折本日": 58, "折": 28,
-        "無線日": 58, "三方日": 58, "仕上日": 58, "入品日": 58, "表紙日付": 58,
-        "カード日付": 58, "カバー日付": 58, "帯日付": 58
+        "受注番号": 48, 
+        "納期": 42, "折本日": 42, "無線日": 42, "三方日": 42, "仕上日": 42, "入品日": 42,
+        "表紙日付": 42, "カード日付": 42, "カバー日付": 42, "帯日付": 42,
+        "出版社名": 68, "書名": 110, "刷数": 26, "回数": 26,
+        "単価": 36, "製本数": 42, "製品預かり": 42, "総頁数": 38, "32P": 26, "16P": 26,
+        "8P": 26, "4P": 26, "2P": 26, "印刷所": 45, "折": 26
     }
-    col_widths = [width_mapping.get(c, 45) for c in available_top_cols]
+    col_widths = [width_mapping.get(c, 40) for c in available_top_cols]
 
-    # 判型ごとにグループ化してテーブルを作成
     group_col = "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
 
-    for idx, g_val in enumerate(groups):
-        if idx > 0:
-            elements.append(PageBreak())
-        
+    for g_val in groups:
         g_name_display = g_val if g_val else "（判型未設定）"
         elements.append(Paragraph(f"<b>■ 判型: {g_name_display}</b>", group_header_style))
         
@@ -235,7 +233,7 @@ def generate_order_pdf_v2(df):
 
         t.setStyle(TableStyle(t_style))
         elements.append(t)
-        elements.append(Spacer(1, 8))
+        elements.append(Spacer(1, 4))
 
     doc.build(elements)
     buffer.seek(0)
@@ -320,7 +318,7 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（判型グループ・納期/顧客順管理）")
+st.header("📋 受注一覧表②（判型グループ・日付3文字幅・連続出力）")
 
 with st.expander("🔍 検索条件の変更・絞り込みはこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
@@ -358,7 +356,7 @@ if api_records:
         h_due = parse_date_safe(r.get("field-52"))
         h_pub = clean_val(r.get("field-8", ""))
         h_title = clean_val(r.get("field-13", ""))
-        h_format = clean_val(r.get("field-23", ""))  # 判型
+        h_format = clean_val(r.get("field-23", ""))
         h_qty = clean_val(r.get("field-4", ""))
         h_price = clean_val(r.get("field-5", ""))
         h_cust_keeping = clean_val(r.get("field-81", ""))
@@ -419,7 +417,6 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
-    # 判型順 ➔ 納期順 ➔ 出版社名順 でソート
     sort_keys = ["判型", "納期", "出版社名"]
     df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True], na_position="last").reset_index(drop=True)
 
