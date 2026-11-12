@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（グループ軸切替・日付3.5文字幅・連続出力）")
+st.title("📊 受注一覧表②（納期上/中/下・急ぎ追加管理）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -157,7 +157,7 @@ def to_excel_bytes(df):
     output.seek(0)
     return output
 
-# --- 受注一覧表②のPDF生成（グループ軸対応・日付3.5文字幅・連続出力） ---
+# --- 受注一覧表②のPDF生成 ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
@@ -167,16 +167,16 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.white, alignment=1)
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.HexColor("#0F172A"))
 
-    group_label_str = "顧客グループ別（出版社順・納期/判型順）" if group_type == "publisher" else "判型グループ別（判型順・納期/顧客順）"
+    group_label_str = "顧客グループ別（出版社順）" if group_type == "publisher" else "判型グループ別（判型順）"
     elements = [
-        Paragraph(f"<b>受注一覧表②（{group_label_str}・日付3.5文字幅・連続出力）</b>", title_style),
+        Paragraph(f"<b>受注一覧表②（{group_label_str}・納期詳細追加）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 6),
     ]
 
     top_cols = [
-        "受注番号", "納期", "出版社名", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "受注番号", "納期", "納期上/中/下", "急ぎ", "出版社名", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
@@ -184,7 +184,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
     width_mapping = {
         "受注番号": 48, 
-        "納期": 46, "折本日": 46, "無線日": 46, "三方日": 46, "仕上日": 46, "入品日": 46,
+        "納期": 46, "納期上/中/下": 32, "急ぎ": 24, "折本日": 46, "無線日": 46, "三方日": 46, "仕上日": 46, "入品日": 46,
         "表紙日付": 46, "カード日付": 46, "カバー日付": 46, "帯日付": 46,
         "出版社名": 68, "書名": 110, "刷数": 26, "回数": 26,
         "単価": 36, "製本数": 42, "製品預かり": 42, "総頁数": 38, "32P": 26, "16P": 26,
@@ -319,7 +319,7 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（グループ軸切替管理）")
+st.header("📋 受注一覧表②（納期上/中/下・急ぎ追加管理）")
 
 with st.expander("🔍 検索条件・出力グループ軸の設定はこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
@@ -365,6 +365,15 @@ if api_records:
         h_ord_no = clean_val(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
         h_due = parse_date_safe(r.get("field-52"))
+        
+        # 納期上/中/下 (field-102), 急ぎ (field-103)
+        val_102 = clean_val(r.get("field-102", ""))
+        if val_102 not in ["", "確定", "上旬", "中旬", "下旬"]:
+            val_102 = ""
+        val_103 = clean_val(r.get("field-103", ""))
+        if val_103 not in ["", "急"]:
+            val_103 = ""
+
         h_pub = clean_val(r.get("field-8", ""))
         h_title = clean_val(r.get("field-13", ""))
         h_format = clean_val(r.get("field-23", ""))
@@ -398,8 +407,10 @@ if api_records:
             "_record_idx": record_idx,
             "出版社名": h_pub,
             "判型": h_format,
-            "納期": h_due,
             "受注番号": h_ord_no,
+            "納期": h_due,
+            "納期上/中/下": val_102,
+            "急ぎ": val_103,
             "書名": h_title,
             "刷数": h_print_count,
             "回数": h_times_count,
@@ -428,7 +439,6 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
-    # 選択されたグループ軸に応じてソート順を切り替え
     if current_group_type == "publisher":
         sort_keys = ["出版社名", "納期", "判型"]
     else:
@@ -446,8 +456,18 @@ if api_records:
             "_record_idx": None,
             "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
             "判型": st.column_config.TextColumn("判型", disabled=True),
-            "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
             "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
+            "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
+            "納期上/中/下": st.column_config.SelectboxColumn(
+                "納期上/中/下",
+                options=["", "確定", "上旬", "中旬", "下旬"],
+                help="納期の上旬・中旬・下旬・確定を選択します (field-102)"
+            ),
+            "急ぎ": st.column_config.SelectboxColumn(
+                "急ぎ",
+                options=["", "急"],
+                help="急ぎ案件の場合は「急」を選択します (field-103)"
+            ),
             "書名": st.column_config.TextColumn("書名", disabled=True),
             "刷数": st.column_config.TextColumn("刷数"),
             "回数": st.column_config.TextColumn("回数"),
