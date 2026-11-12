@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（判型グループ・日付3.5文字幅・連続出力）")
+st.title("📊 受注一覧表②（グループ軸切替・日付3.5文字幅・連続出力）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -157,8 +157,8 @@ def to_excel_bytes(df):
     output.seek(0)
     return output
 
-# --- 受注一覧表②のPDF生成（日付欄3.5文字幅・連続出力） ---
-def generate_order_pdf_v2(df):
+# --- 受注一覧表②のPDF生成（グループ軸対応・日付3.5文字幅・連続出力） ---
+def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
@@ -167,8 +167,9 @@ def generate_order_pdf_v2(df):
     header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.white, alignment=1)
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.HexColor("#0F172A"))
 
+    group_label_str = "顧客グループ別（出版社順・納期/判型順）" if group_type == "publisher" else "判型グループ別（判型順・納期/顧客順）"
     elements = [
-        Paragraph("<b>受注一覧表②（判型グループ・日付3.5文字幅・連続出力）</b>", title_style),
+        Paragraph(f"<b>受注一覧表②（{group_label_str}・日付3.5文字幅・連続出力）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 6),
@@ -181,7 +182,6 @@ def generate_order_pdf_v2(df):
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
-    # 日付フィールドは3.5文字幅相当（約46px）に調整
     width_mapping = {
         "受注番号": 48, 
         "納期": 46, "折本日": 46, "無線日": 46, "三方日": 46, "仕上日": 46, "入品日": 46,
@@ -192,12 +192,13 @@ def generate_order_pdf_v2(df):
     }
     col_widths = [width_mapping.get(c, 40) for c in available_top_cols]
 
-    group_col = "判型"
+    group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
 
     for g_val in groups:
-        g_name_display = g_val if g_val else "（判型未設定）"
-        elements.append(Paragraph(f"<b>■ 判型: {g_name_display}</b>", group_header_style))
+        g_name_display = g_val if g_val else "（未設定）"
+        prefix_label = "■ 出版社: " if group_type == "publisher" else "■ 判型: "
+        elements.append(Paragraph(f"<b>{prefix_label}{g_name_display} 御中</b>" if group_type == "publisher" else f"<b>{prefix_label}{g_name_display}</b>", group_header_style))
         
         sub_df = df[df[group_col] == g_val] if g_val else df
 
@@ -318,9 +319,9 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（判型グループ・日付3.5文字幅・連続出力）")
+st.header("📋 受注一覧表②（グループ軸切替管理）")
 
-with st.expander("🔍 検索条件の変更・絞り込みはこちら", expanded=bool(not url_order_no)):
+with st.expander("🔍 検索条件・出力グループ軸の設定はこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
     target_date_field = "field-52" if "納期" in search_date_type else "field-1"
 
@@ -331,6 +332,16 @@ with st.expander("🔍 検索条件の変更・絞り込みはこちら", expand
         t1_end = st.date_input("期間（終了）", value=date.today() + timedelta(days=14), key="v2_e")
     
     publisher_input = st.text_input("📖 出版社名で絞り込み", value="", key="v2_pub")
+    
+    st.markdown("---")
+    group_axis_choice = st.radio(
+        "🗂️ 一覧表のグループ軸を選択（ソート順）",
+        options=["① 顧客グループ別（出版社順 ➔ 納期・判型順）", "② 判型グループ別（判型順 ➔ 納期・顧客順）"],
+        horizontal=True,
+        key="group_axis_radio"
+    )
+    current_group_type = "publisher" if "①" in group_axis_choice else "format"
+
     search_clicked = st.button("🔄 検索実行", type="primary", key="v2_btn")
 
 if search_clicked:
@@ -385,9 +396,9 @@ if api_records:
         flat_data.append({
             "更新": False,
             "_record_idx": record_idx,
+            "出版社名": h_pub,
             "判型": h_format,
             "納期": h_due,
-            "出版社名": h_pub,
             "受注番号": h_ord_no,
             "書名": h_title,
             "刷数": h_print_count,
@@ -417,7 +428,12 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
-    sort_keys = ["判型", "納期", "出版社名"]
+    # 選択されたグループ軸に応じてソート順を切り替え
+    if current_group_type == "publisher":
+        sort_keys = ["出版社名", "納期", "判型"]
+    else:
+        sort_keys = ["判型", "納期", "出版社名"]
+
     df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True], na_position="last").reset_index(drop=True)
 
     edited_v2_df = st.data_editor(
@@ -428,9 +444,9 @@ if api_records:
         column_config={
             "更新": st.column_config.CheckboxColumn("更新", required=True),
             "_record_idx": None,
+            "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
             "判型": st.column_config.TextColumn("判型", disabled=True),
             "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
-            "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
             "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
             "書名": st.column_config.TextColumn("書名", disabled=True),
             "刷数": st.column_config.TextColumn("刷数"),
@@ -466,15 +482,15 @@ if api_records:
         st.download_button(
             label="📥 受注一覧表②を Excel でダウンロード",
             data=excel_bytes,
-            file_name=f"受注一覧表2_{date.today().strftime('%Y%m%d')}.xlsx",
+            file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     with col_d2:
-        pdf_bytes = generate_order_pdf_v2(edited_v2_df)
+        pdf_bytes = generate_order_pdf_v2(edited_v2_df, group_type=current_group_type)
         st.download_button(
-            label="🖨️ 受注一覧表②を A3 PDF でダウンロード",
+            label=f"🖨️ 受注一覧表②を A3 PDF でダウンロード（{group_axis_choice[:2]}）",
             data=pdf_bytes,
-            file_name=f"受注一覧表2_{date.today().strftime('%Y%m%d')}.pdf",
+            file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
             mime="application/pdf"
         )
 else:
