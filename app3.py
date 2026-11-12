@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（判型グループ・日付3文字幅・連続出力）")
+st.title("📊 受注一覧表②（判型グループ・日付3.5文字幅・連続出力）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -157,7 +157,7 @@ def to_excel_bytes(df):
     output.seek(0)
     return output
 
-# --- 受注一覧表②のPDF生成（日付欄3文字幅・強制改ページなしの連続出力） ---
+# --- 受注一覧表②のPDF生成（日付欄3.5文字幅・連続出力） ---
 def generate_order_pdf_v2(df):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
@@ -168,7 +168,7 @@ def generate_order_pdf_v2(df):
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.HexColor("#0F172A"))
 
     elements = [
-        Paragraph("<b>受注一覧表②（判型グループ・日付3文字幅・連続出力）</b>", title_style),
+        Paragraph("<b>受注一覧表②（判型グループ・日付3.5文字幅・連続出力）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 6),
@@ -181,11 +181,11 @@ def generate_order_pdf_v2(df):
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
-    # 日付フィールドは3文字幅相当（約38px）、その他のフィールド幅
+    # 日付フィールドは3.5文字幅相当（約46px）に調整
     width_mapping = {
         "受注番号": 48, 
-        "納期": 42, "折本日": 42, "無線日": 42, "三方日": 42, "仕上日": 42, "入品日": 42,
-        "表紙日付": 42, "カード日付": 42, "カバー日付": 42, "帯日付": 42,
+        "納期": 46, "折本日": 46, "無線日": 46, "三方日": 46, "仕上日": 46, "入品日": 46,
+        "表紙日付": 46, "カード日付": 46, "カバー日付": 46, "帯日付": 46,
         "出版社名": 68, "書名": 110, "刷数": 26, "回数": 26,
         "単価": 36, "製本数": 42, "製品預かり": 42, "総頁数": 38, "32P": 26, "16P": 26,
         "8P": 26, "4P": 26, "2P": 26, "印刷所": 45, "折": 26
@@ -318,7 +318,7 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（判型グループ・日付3文字幅・連続出力）")
+st.header("📋 受注一覧表②（判型グループ・日付3.5文字幅・連続出力）")
 
 with st.expander("🔍 検索条件の変更・絞り込みはこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
