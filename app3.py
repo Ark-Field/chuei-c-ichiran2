@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（行全体赤網掛け強調対応）")
+st.title("📊 受注一覧表②（@pocket保存機能・赤網掛け対応）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -156,6 +156,25 @@ def to_excel_bytes(df):
         df.to_excel(writer, index=False, sheet_name="Sheet1")
     output.seek(0)
     return output
+
+# --- @pocket データ更新用関数 ---
+def update_pocket_record(record_id, update_data):
+    if not record_id:
+        return False, "レコードIDが不正です"
+    url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
+    headers = {
+        "X-At-Pocket-API-Key": POCKET_API_KEY,
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.put(url, headers=headers, json=update_data, timeout=20)
+        if response.status_code in [200, 204]:
+            return True, "成功"
+        else:
+            return False, f"HTTP {response.status_code}: {response.text}"
+    except Exception as e:
+        return False, str(e)
 
 # --- 受注一覧表②のPDF生成（該当行全体を赤網掛け） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
@@ -241,7 +260,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             row_1_idx = 1 + (i * 2)
             memo_row_idx = row_1_idx + 1
 
-            # 条件合致時は1段目・2段目（備考行）の背景全体を薄い赤（赤網掛け）にする
             if is_urgent:
                 t_style.append(("BACKGROUND", (0, row_1_idx), (-1, row_1_idx), colors.HexColor("#FEE2E2")))
                 t_style.append(("BACKGROUND", (0, memo_row_idx), (-1, memo_row_idx), colors.HexColor("#FEE2E2")))
@@ -338,7 +356,7 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（行全体赤網掛け強調管理）")
+st.header("📋 受注一覧表②（@pocket一括保存対応）")
 
 with st.expander("🔍 検索条件・出力グループ軸の設定はこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
@@ -381,6 +399,7 @@ if api_records:
     
     flat_data = []
     for record_idx, r in enumerate(api_records):
+        rec_id = r.get("_recordId", "")
         h_ord_no = clean_val(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
         h_due = parse_date_safe(r.get("field-52"))
@@ -423,6 +442,7 @@ if api_records:
         flat_data.append({
             "更新": False,
             "_record_idx": record_idx,
+            "_recordId": rec_id,
             "出版社名": h_pub,
             "判型": h_format,
             "受注番号": h_ord_no,
@@ -472,6 +492,7 @@ if api_records:
         column_config={
             "更新": st.column_config.CheckboxColumn("更新", required=True),
             "_record_idx": None,
+            "_recordId": None,
             "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
             "判型": st.column_config.TextColumn("判型", disabled=True),
             "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
@@ -513,12 +534,45 @@ if api_records:
         }
     )
 
+    # --- @pocket一括保存ボタンの処理 ---
     st.markdown("---")
-    col_d1, col_d2 = st.columns(2)
+    col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
+    
+    with col_save:
+        if st.button("💾 変更した行を @pocket に保存", type="primary", key="save_pocket_btn"):
+            update_rows = edited_v2_df[edited_v2_df["更新"] == True]
+            if len(update_rows) == 0:
+                st.warning("⚠️ 「更新」にチェックが入っている行がありません。")
+            else:
+                success_count = 0
+                error_messages = []
+                with st.spinner("@pocketへデータを保存中..."):
+                    for _, row in update_rows.iterrows():
+                        r_id = row.get("_recordId", "")
+                        payload = {
+                            "field-102": clean_val(row.get("納期上/中/下", "")),
+                            "field-103": clean_val(row.get("急ぎ", "")),
+                            "field-28": clean_val(row.get("刷数", "")),
+                            "field-45": clean_val(row.get("備考", ""))
+                        }
+                        ok, msg = update_pocket_record(r_id, payload)
+                        if ok:
+                            success_count += 1
+                        else:
+                            error_messages.append(f"ID {r_id}: {msg}")
+                
+                if success_count > 0:
+                    st.success(f"✨ **{success_count} 件** のデータを @pocket へ正常に保存しました！")
+                if error_messages:
+                    for err in error_messages:
+                        st.error(f"❌ 保存エラー: {err}")
+                if success_count > 0:
+                    st.rerun()
+
     with col_d1:
         excel_bytes = to_excel_bytes(edited_v2_df)
         st.download_button(
-            label="📥 受注一覧表②を Excel でダウンロード",
+            label="📥 Excel でダウンロード",
             data=excel_bytes,
             file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -526,7 +580,7 @@ if api_records:
     with col_d2:
         pdf_bytes = generate_order_pdf_v2(edited_v2_df, group_type=current_group_type)
         st.download_button(
-            label=f"🖨️ 受注一覧表②を A3 PDF でダウンロード（{group_axis_choice[:2]}）",
+            label=f"🖨️ A3 PDF ダウンロード（{group_axis_choice[:2]}）",
             data=pdf_bytes,
             file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
             mime="application/pdf"
