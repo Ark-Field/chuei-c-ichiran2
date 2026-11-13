@@ -150,6 +150,14 @@ def parse_date_safe(val):
     except ValueError:
         return None
 
+def date_to_str(val):
+    if pd.isna(val) or not val:
+        return ""
+    if isinstance(val, (date, datetime)):
+        return val.strftime("%Y-%m-%d")
+    parsed = parse_date_safe(val)
+    return parsed.strftime("%Y-%m-%d") if parsed else ""
+
 def to_excel_bytes(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -167,8 +175,12 @@ def update_pocket_record(record_id, update_data):
         "Accept": "application/json",
         "Content-Type": "application/json"
     }
+    payload = {
+        "apiVersion": 1.1,
+        "record": update_data
+    }
     try:
-        response = requests.put(url, headers=headers, json=update_data, timeout=20)
+        response = requests.put(url, headers=headers, json=payload, timeout=20)
         if response.status_code in [200, 204]:
             return True, "成功"
         else:
@@ -236,7 +248,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
         ]
 
-        row_count = len(sub_df)
         for i, (_, row) in enumerate(sub_df.iterrows()):
             val_102_check = str(row.get("納期上/中/下", ""))
             val_103_check = str(row.get("急ぎ", ""))
@@ -435,14 +446,18 @@ if api_records:
         
         item_90 = sub_90[0] if isinstance(sub_90, list) and len(sub_90) > 0 else {}
         rec_90 = item_90.get("record", item_90) if isinstance(item_90, dict) else {}
+        sub_90_id = str(item_90.get("Id") or item_90.get("recordId") or rec_90.get("Id") or "").strip()
         
         item_91 = sub_91[0] if isinstance(sub_91, list) and len(sub_91) > 0 else {}
         rec_91 = item_91.get("record", item_91) if isinstance(item_91, dict) else {}
+        sub_91_id = str(item_91.get("Id") or item_91.get("recordId") or rec_91.get("Id") or "").strip()
 
         flat_data.append({
             "更新": False,
             "_record_idx": record_idx,
             "_recordId": rec_id,
+            "_sub_90_id": sub_90_id, # 明細レコードID保持
+            "_sub_91_id": sub_91_id, # 明細レコードID保持
             "出版社名": h_pub,
             "判型": h_format,
             "受注番号": h_ord_no,
@@ -493,6 +508,8 @@ if api_records:
             "更新": st.column_config.CheckboxColumn("更新", required=True),
             "_record_idx": None,
             "_recordId": None,
+            "_sub_90_id": None,
+            "_sub_91_id": None,
             "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
             "判型": st.column_config.TextColumn("判型", disabled=True),
             "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
@@ -534,7 +551,7 @@ if api_records:
         }
     )
 
-    # --- @pocket一括保存ボタンの処理 ---
+    # --- @pocket一括保存ボタンの処理（サブテーブル・明細レコードID対応） ---
     st.markdown("---")
     col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
     
@@ -549,12 +566,43 @@ if api_records:
                 with st.spinner("@pocketへデータを保存中..."):
                     for _, row in update_rows.iterrows():
                         r_id = row.get("_recordId", "")
+                        sub_90_id = row.get("_sub_90_id", "")
+                        sub_91_id = row.get("_sub_91_id", "")
+                        
+                        # field-90（工程日）のサブテーブル構造を作成（明細レコードIDを含める）
+                        sub_90_item = {
+                            "record": {
+                                "field-90_3": date_to_str(row.get("折本日")),
+                                "field-90_4": date_to_str(row.get("無線日")),
+                                "field-90_5": date_to_str(row.get("三方日")),
+                                "field-90_6": date_to_str(row.get("仕上日")),
+                                "field-90_10": date_to_str(row.get("入品日"))
+                            }
+                        }
+                        if sub_90_id:
+                            sub_90_item["Id"] = sub_90_id
+
+                        # field-91（付物日）のサブテーブル構造を作成（明細レコードIDを含める）
+                        sub_91_item = {
+                            "record": {
+                                "field-91_1": date_to_str(row.get("表紙日付")),
+                                "field-91_9": date_to_str(row.get("カード日付")),
+                                "field-91_5": date_to_str(row.get("カバー日付")),
+                                "field-91_13": date_to_str(row.get("帯日付"))
+                            }
+                        }
+                        if sub_91_id:
+                            sub_91_item["Id"] = sub_91_id
+
                         payload = {
                             "field-102": clean_val(row.get("納期上/中/下", "")),
                             "field-103": clean_val(row.get("急ぎ", "")),
                             "field-28": clean_val(row.get("刷数", "")),
-                            "field-45": clean_val(row.get("備考", ""))
+                            "field-45": clean_val(row.get("備考", "")),
+                            "field-90": [sub_90_item],
+                            "field-91": [sub_91_item]
                         }
+                        
                         ok, msg = update_pocket_record(r_id, payload)
                         if ok:
                             success_count += 1
