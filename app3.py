@@ -456,8 +456,8 @@ if api_records:
             "更新": False,
             "_record_idx": record_idx,
             "_recordId": rec_id,
-            "_sub_90_id": sub_90_id, # 明細レコードID保持
-            "_sub_91_id": sub_91_id, # 明細レコードID保持
+            "_sub_90_id": sub_90_id,
+            "_sub_91_id": sub_91_id,
             "出版社名": h_pub,
             "判型": h_format,
             "受注番号": h_ord_no,
@@ -551,7 +551,7 @@ if api_records:
         }
     )
 
-    # --- @pocket一括保存ボタンの処理（サブテーブル・明細レコードID対応） ---
+    # --- @pocket一括保存ボタンの処理（受注番号 field-2 を追加） ---
     st.markdown("---")
     col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
     
@@ -569,7 +569,6 @@ if api_records:
                         sub_90_id = row.get("_sub_90_id", "")
                         sub_91_id = row.get("_sub_91_id", "")
                         
-                        # field-90（工程日）のサブテーブル構造を作成（明細レコードIDを含める）
                         sub_90_item = {
                             "record": {
                                 "field-90_3": date_to_str(row.get("折本日")),
@@ -582,7 +581,6 @@ if api_records:
                         if sub_90_id:
                             sub_90_item["Id"] = sub_90_id
 
-                        # field-91（付物日）のサブテーブル構造を作成（明細レコードIDを含める）
                         sub_91_item = {
                             "record": {
                                 "field-91_1": date_to_str(row.get("表紙日付")),
@@ -595,6 +593,7 @@ if api_records:
                             sub_91_item["Id"] = sub_91_id
 
                         payload = {
+                            "field-2": clean_val(row.get("受注番号", "")),  # ★ キー項目「受注番号」を追加
                             "field-102": clean_val(row.get("納期上/中/下", "")),
                             "field-103": clean_val(row.get("急ぎ", "")),
                             "field-28": clean_val(row.get("刷数", "")),
