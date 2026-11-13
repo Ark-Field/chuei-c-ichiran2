@@ -411,6 +411,9 @@ if api_records:
     flat_data = []
     for record_idx, r in enumerate(api_records):
         rec_id = r.get("_recordId", "")
+        # ★ @pocket詳細へのリンクURLを生成
+        detail_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{rec_id}/detail" if rec_id and rec_id.lower() != "none" else ""
+
         h_ord_no = clean_val(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
         h_due = parse_date_safe(r.get("field-52"))
@@ -454,6 +457,7 @@ if api_records:
 
         flat_data.append({
             "更新": False,
+            "詳細": detail_url,  # ★「更新」のすぐ次に配置
             "_record_idx": record_idx,
             "_recordId": rec_id,
             "_sub_90_id": sub_90_id,
@@ -506,6 +510,11 @@ if api_records:
         use_container_width=True,
         column_config={
             "更新": st.column_config.CheckboxColumn("更新", required=True),
+            "詳細": st.column_config.LinkColumn(
+                "🔗 @pocket詳細",
+                help="@pocketの該当データ画面へジャンプします",
+                display_text="📝 詳細を開く"
+            ),
             "_record_idx": None,
             "_recordId": None,
             "_sub_90_id": None,
@@ -551,7 +560,7 @@ if api_records:
         }
     )
 
-    # --- @pocket一括保存ボタンの処理（受注番号 field-2 を追加） ---
+    # --- @pocket一括保存ボタンの処理 ---
     st.markdown("---")
     col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
     
@@ -593,7 +602,7 @@ if api_records:
                             sub_91_item["Id"] = sub_91_id
 
                         payload = {
-                            "field-2": clean_val(row.get("受注番号", "")),  # ★ キー項目「受注番号」を追加
+                            "field-2": clean_val(row.get("受注番号", "")),
                             "field-102": clean_val(row.get("納期上/中/下", "")),
                             "field-103": clean_val(row.get("急ぎ", "")),
                             "field-28": clean_val(row.get("刷数", "")),
