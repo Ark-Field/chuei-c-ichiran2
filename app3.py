@@ -81,7 +81,7 @@ dark_navy_theme_css = """
 """
 st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
 
-st.title("📊 受注一覧表②（@pocket保存機能・赤網掛け対応）")
+st.title("📊 受注一覧表（納品予定日更新）")
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -367,7 +367,7 @@ if "api_records" not in st.session_state or url_order_no:
 # ==========================================
 # 6. メイン画面
 # ==========================================
-st.header("📋 受注一覧表②（@pocket一括保存対応）")
+st.header("📋 受注一覧表（各日付更新）")
 
 with st.expander("🔍 検索条件・出力グループ軸の設定はこちら", expanded=bool(not url_order_no)):
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
@@ -411,7 +411,7 @@ if api_records:
     flat_data = []
     for record_idx, r in enumerate(api_records):
         rec_id = r.get("_recordId", "")
-        # ★ @pocket詳細へのリンクURLを生成
+        # ★ DB詳細へのリンクURLを生成
         detail_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{rec_id}/detail" if rec_id and rec_id.lower() != "none" else ""
 
         h_ord_no = clean_val(r.get("field-2", ""))
@@ -511,7 +511,7 @@ if api_records:
         column_config={
             "更新": st.column_config.CheckboxColumn("更新", required=True),
             "詳細": st.column_config.LinkColumn(
-                "🔗 @pocket詳細",
+                "🔗 @DB詳細",
                 help="@pocketの該当データ画面へジャンプします",
                 display_text="📝 詳細を開く"
             ),
