@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import streamlit as st
 
-# ReportLab関連のインポート（PDF出力用）
+# ReportLab関連のインポート（PDF出力用・変更なし）
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A3, landscape
 from reportlab.pdfbase import pdfmetrics
@@ -188,7 +188,7 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成（該当行全体を赤網掛け） ---
+# --- 受注一覧表②のPDF生成（元の記述を維持） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
@@ -248,15 +248,18 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
         ]
 
-        for i, (_, row) in enumerate(sub_df.iterrows()):
-            val_102_check = str(row.get("納期上/中/下", ""))
+        for i, (_, row) in enumerate(sub_df.iterrows():
+            # 画面側は「納期2」になっているので、PDF側では元のキー「納期上/中/下」または「納期2」に対応できるよう配慮
+            val_102_check = str(row.get("納期上/中/下", row.get("納期2", "")))
             val_103_check = str(row.get("急ぎ", ""))
             is_urgent = (val_102_check == "確定" or val_103_check == "急")
 
             row_cells_1 = []
             for c in available_top_cols:
-                val_str = str(row[c]) if pd.notna(row[c]) else ""
-                if is_urgent and (c in ["納期上/中/下", "急ぎ"]):
+                # PDF上の列名を考慮
+                lookup_c = "納期上/中/下" if c == "納期2" else c
+                val_str = str(row[lookup_c]) if pd.notna(row[lookup_c]) else ""
+                if is_urgent and (c in ["納期上/中/下", "納期2", "急ぎ"]):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", red_cell_style))
                 else:
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", cell_style))
@@ -360,9 +363,15 @@ if "api_records" not in st.session_state or url_order_no:
         with st.spinner(f"DBから受注番号: {url_order_no} のデータを取得中..."):
             st.session_state["api_records"] = fetch_pocket_records(target_order_no=url_order_no)
     else:
-        default_start = date.today()
-        default_end = default_start + timedelta(days=14)
-        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, date_field="field-52")
+        # 当月の初日と末日をデフォルトに設定
+        today_date = date.today()
+        default_start = date(today_date.year, today_date.month, 1)
+        if today_date.month == 12:
+            default_end = date(today_date.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            default_end = date(today_date.year, today_date.month + 1, 1) - timedelta(days=1)
+            
+        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="株式会社 岩波書店", date_field="field-52")
 
 # ==========================================
 # 6. メイン画面
@@ -373,13 +382,21 @@ with st.expander("🔍 検索条件・出力グループ軸の設定はこちら
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
     target_date_field = "field-52" if "納期" in search_date_type else "field-1"
 
+    # デフォルトを当月初日〜当月末日に設定
+    today_date = date.today()
+    init_start = date(today_date.year, today_date.month, 1)
+    if today_date.month == 12:
+        init_end = date(today_date.year + 1, 1, 1) - timedelta(days=1)
+    else:
+        init_end = date(today_date.year, today_date.month + 1, 1) - timedelta(days=1)
+
     col_s1, col_s2 = st.columns(2)
     with col_s1:
-        t1_start = st.date_input("期間（開始）", value=date.today(), key="v2_s")
+        t1_start = st.date_input("期間（開始）", value=init_start, key="v2_s")
     with col_s2:
-        t1_end = st.date_input("期間（終了）", value=date.today() + timedelta(days=14), key="v2_e")
+        t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
     
-    publisher_input = st.text_input("📖 出版社名で絞り込み", value="", key="v2_pub")
+    publisher_input = st.text_input("📖 出版社名で絞り込み", value="株式会社 岩波書店", key="v2_pub")
     
     st.markdown("---")
     group_axis_choice = st.radio(
@@ -411,7 +428,6 @@ if api_records:
     flat_data = []
     for record_idx, r in enumerate(api_records):
         rec_id = r.get("_recordId", "")
-        # ★ DB詳細へのリンクURLを生成
         detail_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{rec_id}/detail" if rec_id and rec_id.lower() != "none" else ""
 
         h_ord_no = clean_val(r.get("field-2", ""))
@@ -457,7 +473,7 @@ if api_records:
 
         flat_data.append({
             "更新": False,
-            "詳細": detail_url,  # ★「更新」のすぐ次に配置
+            "詳細": detail_url,
             "_record_idx": record_idx,
             "_recordId": rec_id,
             "_sub_90_id": sub_90_id,
@@ -466,7 +482,7 @@ if api_records:
             "判型": h_format,
             "受注番号": h_ord_no,
             "納期": h_due,
-            "納期上/中/下": val_102,
+            "納期2": val_102,
             "急ぎ": val_103,
             "書名": h_title,
             "刷数": h_print_count,
@@ -523,9 +539,10 @@ if api_records:
             "判型": st.column_config.TextColumn("判型", disabled=True),
             "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
             "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
-            "納期上/中/下": st.column_config.SelectboxColumn(
-                "納期上/中/下",
+            "納期2": st.column_config.SelectboxColumn(
+                "納期2",
                 options=["", "確定", "上旬", "中旬", "下旬"],
+                width="small",
                 help="納期の上旬・中旬・下旬・確定を選択します (field-102)"
             ),
             "急ぎ": st.column_config.SelectboxColumn(
@@ -533,9 +550,9 @@ if api_records:
                 options=["", "急"],
                 help="急ぎ案件の場合は「急」を選択します (field-103)"
             ),
-            "書名": st.column_config.TextColumn("書名", disabled=True),
-            "刷数": st.column_config.TextColumn("刷数"),
-            "回数": st.column_config.TextColumn("回数"),
+            "書名": st.column_config.TextColumn("書名", disabled=True, width="small"),
+            "刷数": st.column_config.TextColumn("刷数", width="small"),
+            "回数": st.column_config.TextColumn("回数", width="small"),
             "単価": st.column_config.TextColumn("単価", disabled=True),
             "製本数": st.column_config.TextColumn("製本数", disabled=True),
             "製品預かり": st.column_config.TextColumn("製品預かり", disabled=True),
@@ -556,7 +573,7 @@ if api_records:
             "カード日付": st.column_config.DateColumn("カード日付", format="YYYY-MM-DD"),
             "カバー日付": st.column_config.DateColumn("カバー日付", format="YYYY-MM-DD"),
             "帯日付": st.column_config.DateColumn("帯日付", format="YYYY-MM-DD"),
-            "備考": st.column_config.TextColumn("備考")
+            "備考": st.column_config.TextColumn("備考", width="medium")
         }
     )
 
@@ -603,7 +620,7 @@ if api_records:
 
                         payload = {
                             "field-2": clean_val(row.get("受注番号", "")),
-                            "field-102": clean_val(row.get("納期上/中/下", "")),
+                            "field-102": clean_val(row.get("納期2", "")),
                             "field-103": clean_val(row.get("急ぎ", "")),
                             "field-28": clean_val(row.get("刷数", "")),
                             "field-45": clean_val(row.get("備考", "")),
