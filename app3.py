@@ -21,90 +21,46 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ==========================================
-# 1. ページ基本設定 ＆ 項目名幅合わせ・極限コンパクトCSS
+# 1. ページ基本設定 ＆ フルスクリーン切り替えCSS
 # ==========================================
-st.set_page_config(page_title="受注一覧表② 管理システム", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="受注一覧表② 管理システム", layout="wide", initial_sidebar_state="expanded")
 
-dark_navy_theme_css = """
-    <style>
-    .stApp {
-        background-color: #F8FAFC;
-    }
-    h1, h2, h3 {
-        color: #0F172A !important;
-        font-family: 'Helvetica Neue', Arial, sans-serif;
-    }
-    div.stButton > button:first-child {
-        background-color: #1E3A8A;
-        color: white;
-        border-radius: 6px;
-        border: none;
-        font-weight: bold;
-        padding: 0.5rem 1rem;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        transition: background-color 0.2s;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #1E40AF;
-        color: white;
-    }
-    div.stDownloadButton > button:first-child {
-        background-color: #0F172A;
-        color: white;
-        border-radius: 6px;
-        border: none;
-        font-weight: bold;
-    }
-    div.stDownloadButton > button:first-child:hover {
-        background-color: #1E293B;
-        color: white;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #E2E8F0;
-        border-radius: 6px 6px 0px 0px;
-        color: #334155;
-        font-weight: bold;
-        padding: 10px 18px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #1E3A8A !important;
-        color: white !important;
-    }
-    .streamlit-expanderHeader {
-        background-color: #F1F5F9;
-        border-radius: 6px;
-        color: #1E293B;
-        font-weight: bold;
-    }
-    
-    div[data-testid="stDataEditor"] {
-        font-size: 11px !important;
-    }
-    div[data-testid="stDataEditor"] table {
-        width: auto !important;
-    }
-    div[data-testid="stDataEditor"] th {
-        padding: 2px 3px !important;
-        font-size: 10px !important;
-        white-space: nowrap !important;
-    }
-    div[data-testid="stDataEditor"] td {
-        padding: 1px 2px !important;
-        font-size: 11px !important;
-        white-space: nowrap !important;
-    }
+# サイドバーの状態を受け取るためのセッション初期化
+if "fullscreen_mode" not in st.session_state:
+    st.session_state["fullscreen_mode"] = False
 
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    </style>
-"""
-st.markdown(dark_navy_theme_css, unsafe_allow_html=True)
+# フルスクリーンモードに応じた動的CSSの切り替え
+if st.session_state["fullscreen_mode"]:
+    dynamic_layout_css = """
+        <style>
+        /* ヘッダー・フッター・メニューを完全に非表示 */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        [data-testid="stHeader"] {display: none !important;}
+        
+        /* サイドバーを非表示にし、メインエリアを最大化 */
+        [data-testid="stSidebar"] {display: none !important;}
+        [data-testid="stMainBlockContainer"] {
+            max-width: 100% !important;
+            padding-top: 1rem !important;
+            padding-right: 2rem !important;
+            padding-left: 2rem !important;
+        }
+        .stApp { background-color: #F8FAFC; }
+        </style>
+    """
+else:
+    dynamic_layout_css = """
+        <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stApp { background-color: #F8FAFC; }
+        </style>
+    """
 
-st.title("📊 受注一覧表（納品予定日更新）")
+st.markdown(dynamic_layout_css, unsafe_allow_html=True)
 
 # ==========================================
 # 2. 日本語フォント登録処理（ReportLab用）
@@ -211,7 +167,7 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成 ---
+# --- PDF生成関数 ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
@@ -441,7 +397,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
     return output
 
 # ==========================================
-# 5. データ取得関数（全件取得ベース）
+# 5. データ取得関数
 # ==========================================
 query_params = st.query_params
 url_order_no = query_params.get("ord", None)
@@ -520,12 +476,19 @@ if "api_records" not in st.session_state or url_order_no:
         st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, date_field="field-52")
 
 # ==========================================
-# 6. メイン画面
+# 6. サイドバー（全画面切り替えスイッチ＆検索条件）
 # ==========================================
-st.header("📋 受注一覧表（各日付更新）")
+with st.sidebar:
+    st.header("⚙️ 表示・検索設定")
+    
+    # フルスクリーンモード切り替えスイッチ
+    fs_toggle = st.toggle("🖥️ 画面を広々表示（フルスクリーン）", value=st.session_state["fullscreen_mode"], key="fs_switch")
+    if fs_toggle != st.session_state["fullscreen_mode"]:
+        st.session_state["fullscreen_mode"] = fs_toggle
+        st.rerun()
 
-with st.expander("🔍 検索条件・出力グループ軸の設定はこちら", expanded=bool(not url_order_no)):
-    search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
+    st.markdown("---")
+    search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=False)
     target_date_field = "field-52" if "納期" in search_date_type else "field-1"
 
     today_date = date.today()
@@ -535,25 +498,21 @@ with st.expander("🔍 検索条件・出力グループ軸の設定はこちら
     else:
         init_end = date(today_date.year, today_date.month + 1, 1) - timedelta(days=1)
 
-    col_s1, col_s2 = st.columns(2)
-    with col_s1:
-        t1_start = st.date_input("期間（開始）", value=init_start, key="v2_s")
-    with col_s2:
-        t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
+    t1_start = st.date_input("期間（開始）", value=init_start, key="v2_s")
+    t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
     
-    # 岩波書店以外の除外チェックボックス
-    exclude_iwanami = st.checkbox("「株式会社 岩波書店」を除外する（岩波書店以外を抽出）", value=False, key="v2_exc_iwanami")
+    exclude_iwanami = st.checkbox("「株式会社 岩波書店」を除外する（岩波書店以外）", value=False, key="v2_exc_iwanami")
     
     st.markdown("---")
     group_axis_choice = st.radio(
-        "🗂️ 一覧表のグループ軸を選択（ソート順）",
-        options=["① 顧客グループ別（出版社順 ➔ 納期・判型順）", "② 判型グループ別（判型順 ➔ 納期・顧客順）"],
-        horizontal=True,
+        "🗂️ グループ軸（ソート順）",
+        options=["① 顧客別（出版社順）", "② 判型別（判型順）"],
+        horizontal=False,
         key="group_axis_radio"
     )
     current_group_type = "publisher" if "①" in group_axis_choice else "format"
 
-    search_clicked = st.button("🔄 検索実行", type="primary", key="v2_btn")
+    search_clicked = st.button("🔄 検索実行", type="primary", key="v2_btn", use_container_width=True)
 
 if search_clicked:
     st.query_params.clear()
@@ -564,6 +523,11 @@ if search_clicked:
             date_field=target_date_field
         )
     st.rerun()
+
+# ==========================================
+# 7. メイン画面
+# ==========================================
+st.header("📋 受注一覧表（各日付更新）")
 
 api_records = st.session_state.get("api_records", None)
 
@@ -586,7 +550,6 @@ if api_records:
 
         h_pub = clean_val(r.get("field-8", ""))
         
-        # 岩波書店以外チェックがONの場合、ここで除外
         if exclude_iwanami and "岩波書店" in h_pub:
             continue
 
@@ -662,7 +625,7 @@ if api_records:
     df_v2 = pd.DataFrame(flat_data)
 
     if len(df_v2) > 0:
-        st.success(f"✨ 対象レコード **{len(df_v2)} 件** を取得しました。")
+        st.success(f"✨ 対象レコード **{len(df_v2)} 件** を取得しました。（※サイドバーのトグルでいつでも全画面の切り替えが可能です）")
 
         if current_group_type == "publisher":
             sort_keys = ["出版社名", "納期", "納期2", "判型"]
