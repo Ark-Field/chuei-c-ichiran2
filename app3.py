@@ -197,7 +197,7 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成（日付を MM/DD にフォーマット） ---
+# --- 受注一覧表②のPDF生成（出版社名の後ろに判型を追加、カスタムソート適用） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
@@ -217,8 +217,9 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         Spacer(1, 4),
     ]
 
+    # 出版社名の後ろに「判型」を追加
     top_cols = [
-        "受注番号", "納期", "納期2", "急ぎ", "出版社名", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
@@ -239,7 +240,8 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         "カバー日付": 36, 
         "帯日付": 36,
         "出版社名": 60, 
-        "書名": 75, 
+        "判型": 28,  # 3文字幅程度に調整
+        "書名": 70, 
         "刷数": 22, 
         "回数": 22,
         "単価": 32, 
@@ -259,7 +261,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
 
-    # 日付としてフォーマットする列のリスト
     date_cols_set = {"納期", "折本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
 
     for g_val in groups:
@@ -292,7 +293,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
                 lookup_c = "納期上/中/下" if c == "納期2" and "納期上/中/下" in row else c
                 raw_val = row.get(lookup_c, row.get(c, ""))
                 
-                # 日付列の場合はMM/DD形式に変換
                 if c in date_cols_set:
                     val_str = format_date_pdf(raw_val)
                 else:
@@ -549,12 +549,13 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
+    # ご指定の並び順: 顧客グループ別なら [出版社名, 納期, 納期2, 判型]、判型グループ別なら [判型, 納期, 納期2, 出版社名]
     if current_group_type == "publisher":
-        sort_keys = ["出版社名", "納期", "判型"]
+        sort_keys = ["出版社名", "納期", "納期2", "判型"]
     else:
-        sort_keys = ["判型", "納期", "出版社名"]
+        sort_keys = ["判型", "納期", "納期2", "出版社名"]
 
-    df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True], na_position="last").reset_index(drop=True)
+    df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True, True], na_position="last").reset_index(drop=True)
 
     edited_v2_df = st.data_editor(
         df_v2,
@@ -573,7 +574,7 @@ if api_records:
             "_sub_90_id": None,
             "_sub_91_id": None,
             "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
-            "判型": st.column_config.TextColumn("判型", disabled=True),
+            "判型": st.column_config.TextColumn("判型", disabled=True, width="small"),
             "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
             "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
             "納期2": st.column_config.SelectboxColumn(
