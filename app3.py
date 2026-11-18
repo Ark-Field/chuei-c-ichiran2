@@ -394,7 +394,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
     return output
 
 # ==========================================
-# 5. データ取得関数
+# 5. データ取得関数（出版社名 field-105 を使用）
 # ==========================================
 query_params = st.query_params
 url_order_no = query_params.get("ord", None)
@@ -413,7 +413,7 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
             end_str = end_date.strftime("%Y-%m-%d")
             query_parts.append(f'{date_field} >= "{start_str}" and {date_field} <= "{end_str}"')
         if target_publisher:
-            query_parts.append(f'field-8 like "{target_publisher}"')
+            query_parts.append(f'field-105 like "{target_publisher}"')
         if query_parts:
             params["query"] = " and ".join(query_parts)
     
@@ -492,10 +492,10 @@ with st.sidebar:
     t1_start = st.date_input("期間（開始）", value=init_start, key="v2_s")
     t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
     
-    # 出版社名検索ボックス（デフォルト：株式会社 岩波書店）
-    publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波書店", key="v2_pub")
+    # 出版社名検索ボックス（デフォルト：岩波書店）
+    publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波", key="v2_pub")
     
-    exclude_iwanami = st.checkbox("「岩波書店」を除外する（岩波書店以外）", value=False, key="v2_exc_iwanami")
+    exclude_iwanami = st.checkbox("「岩波」を除外する（岩波以外）", value=False, key="v2_exc_iwanami")
     
     st.markdown("---")
     group_axis_choice = st.radio(
@@ -551,7 +551,8 @@ if api_records:
         if val_103 not in ["", "急"]:
             val_103 = ""
 
-        h_pub = clean_val(r.get("field-8", ""))
+        # 出版社名の取得元を field-105 に変更
+        h_pub = clean_val(r.get("field-105", ""))
         
         if exclude_iwanami and "岩波書店" in h_pub:
             continue
