@@ -207,7 +207,7 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成（日付 MM/DD、出版社名後ろに判型） ---
+# --- 受注一覧表②のPDF生成（刷本日は印刷所のすぐ後ろ） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
@@ -229,25 +229,25 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
     top_cols = [
         "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
-        "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
+        "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "無線日", "三方日", "仕上日", "入品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
     width_mapping = {
         "受注番号": 42, "納期": 38, "納期2": 26, "急ぎ": 22, 
-        "折本日": 36, "無線日": 36, "三方日": 36, "仕上日": 36, "入品日": 36,
+        "印刷所": 40, "刷本日": 36, "折": 22, "無線日": 36, "三方日": 36, "仕上日": 36, "入品日": 36,
         "表紙日付": 36, "カード日付": 36, "カバー日付": 36, "帯日付": 36,
         "出版社名": 60, "判型": 28, "書名": 70, "刷数": 22, "回数": 22,
         "単価": 32, "製本数": 38, "製品預かり": 38, "総頁数": 32, 
-        "32P": 22, "16P": 22, "8P": 22, "4P": 22, "2P": 22, "印刷所": 40, "折": 22
+        "32P": 22, "16P": 22, "8P": 22, "4P": 22, "2P": 22
     }
     col_widths = [width_mapping.get(c, 36) for c in available_top_cols]
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
 
-    date_cols_set = {"納期", "折本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
+    date_cols_set = {"納期", "刷本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
 
     for g_val in groups:
         g_name_display = g_val if g_val else "（未設定）"
@@ -316,7 +316,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     buffer.seek(0)
     return buffer
 
-# --- PDFと同じフォーマットのきれいなExcel生成関数 ---
+# --- Excel生成関数 ---
 def generate_order_excel_v2(df, group_type="publisher"):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -336,10 +336,8 @@ def generate_order_excel_v2(df, group_type="publisher"):
     fill_memo = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
 
     border_thin = Border(
-        left=Side(style="thin", color="64748B"),
-        right=Side(style="thin", color="64748B"),
-        top=Side(style="thin", color="64748B"),
-        bottom=Side(style="thin", color="64748B")
+        left=Side(style="thin", color="64748B"), right=Side(style="thin", color="64748B"),
+        top=Side(style="thin", color="64748B"), bottom=Side(style="thin", color="64748B")
     )
 
     align_center = Alignment(horizontal="center", vertical="center")
@@ -347,7 +345,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
 
     top_cols = [
         "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
-        "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
+        "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "無線日", "三方日", "仕上日", "入品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
@@ -361,7 +359,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
-    date_cols_set = {"納期", "折本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
+    date_cols_set = {"納期", "刷本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
 
     current_row = 4
 
@@ -599,6 +597,7 @@ if api_records:
         h_p4 = clean_val(r.get("field-33", ""))
         h_p2 = clean_val(r.get("field-34", ""))
         h_printer = clean_val(r.get("field-14", ""))
+        h_print_date = parse_date_safe(r.get("field-51"))  # 刷本日 (field-51)
         h_folding = clean_val(r.get("field-16", ""))
         h_memo = clean_val(r.get("field-45", ""))
         
@@ -642,7 +641,7 @@ if api_records:
             "4P": h_p4,
             "2P": h_p2,
             "印刷所": h_printer,
-            "折本日": parse_date_safe(rec_90.get("field-90_3")),
+            "刷本日": h_print_date,  # メインテーブル field-51
             "折": h_folding,
             "無線日": parse_date_safe(rec_90.get("field-90_4")),
             "三方日": parse_date_safe(rec_90.get("field-90_5")),
@@ -708,7 +707,7 @@ if api_records:
             "4P": st.column_config.TextColumn("4P", disabled=True),
             "2P": st.column_config.TextColumn("2P", disabled=True),
             "印刷所": st.column_config.TextColumn("印刷所", disabled=True),
-            "折本日": st.column_config.DateColumn("折本日", format="MM/DD"),
+            "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD"),  # 編集可能・MM/DD表記
             "折": st.column_config.TextColumn("折", disabled=True),
             "無線日": st.column_config.DateColumn("無線日", format="MM/DD"),
             "三方日": st.column_config.DateColumn("三方日", format="MM/DD"),
@@ -742,7 +741,6 @@ if api_records:
                         
                         sub_90_item = {
                             "record": {
-                                "field-90_3": date_to_str(row.get("折本日")),
                                 "field-90_4": date_to_str(row.get("無線日")),
                                 "field-90_5": date_to_str(row.get("三方日")),
                                 "field-90_6": date_to_str(row.get("仕上日")),
@@ -768,6 +766,7 @@ if api_records:
                             "field-102": clean_val(row.get("納期2", "")),
                             "field-103": clean_val(row.get("急ぎ", "")),
                             "field-28": clean_val(row.get("刷数", "")),
+                            "field-51": date_to_str(row.get("刷本日")),  # メインテーブルの刷本日 (field-51)
                             "field-45": clean_val(row.get("備考", "")),
                             "field-90": [sub_90_item],
                             "field-91": [sub_91_item]
