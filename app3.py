@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import streamlit as st
 
-# ReportLab関連のインポート（PDF出力用・変更なし）
+# ReportLab関連のインポート（PDF出力用）
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A3, landscape
 from reportlab.pdfbase import pdfmetrics
@@ -188,16 +188,17 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成（元の記述を維持） ---
+# --- 受注一覧表②のPDF生成（納期の次に「納期2」を追加し全体幅を最適化） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=15, rightMargin=15, topMargin=15, bottomMargin=15)
+    # A3横サイズの余白を狭めて横幅を有効活用
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=15, leading=17, textColor=colors.HexColor("#1E3A8A"))
-    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=10, leading=13, textColor=colors.HexColor("#1E3A8A"), spaceBefore=6, spaceAfter=2)
-    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7, leading=8.5, textColor=colors.white, alignment=1)
+    title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=14, leading=16, textColor=colors.HexColor("#1E3A8A"))
+    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=9.5, leading=12, textColor=colors.HexColor("#1E3A8A"), spaceBefore=5, spaceAfter=2)
+    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.white, alignment=1)
     
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.HexColor("#0F172A"))
+    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6, leading=7.5, textColor=colors.HexColor("#0F172A"))
     red_cell_style = ParagraphStyle("RedCell", parent=cell_style, textColor=colors.HexColor("#DC2626"))
 
     group_label_str = "顧客グループ別（出版社順）" if group_type == "publisher" else "判型グループ別（判型順）"
@@ -205,25 +206,50 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         Paragraph(f"<b>受注一覧表②（{group_label_str}・行全体赤網掛け強調）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
-        Spacer(1, 6),
+        Spacer(1, 4),
     ]
 
+    # 「納期」の次に「納期2」を配置
     top_cols = [
-        "受注番号", "納期", "納期上/中/下", "急ぎ", "出版社名", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "受注番号", "納期", "納期2", "急ぎ", "出版社名", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
+    # A3横幅に収まるよう全体を少しずつスリムに調整（納期2は幅24〜26）
     width_mapping = {
-        "受注番号": 48, 
-        "納期": 46, "納期上/中/下": 32, "急ぎ": 24, "折本日": 46, "無線日": 46, "三方日": 46, "仕上日": 46, "入品日": 46,
-        "表紙日付": 46, "カード日付": 46, "カバー日付": 46, "帯日付": 46,
-        "出版社名": 68, "書名": 110, "刷数": 26, "回数": 26,
-        "単価": 36, "製本数": 42, "製品預かり": 42, "総頁数": 38, "32P": 26, "16P": 26,
-        "8P": 26, "4P": 26, "2P": 26, "印刷所": 45, "折": 26
+        "受注番号": 42, 
+        "納期": 42, 
+        "納期2": 26, 
+        "急ぎ": 22, 
+        "折本日": 40, 
+        "無線日": 40, 
+        "三方日": 40, 
+        "仕上日": 40, 
+        "入品日": 40,
+        "表紙日付": 40, 
+        "カード日付": 40, 
+        "カバー日付": 40, 
+        "帯日付": 40,
+        "出版社Name": 60, 
+        "出版社名": 60, 
+        "書名": 75, 
+        "刷数": 22, 
+        "回数": 22,
+        "単価": 32, 
+        "製本数": 38, 
+        "製品預かり": 38, 
+        "総頁数": 32, 
+        "32P": 22, 
+        "16P": 22,
+        "8P": 22, 
+        "4P": 22, 
+        "2P": 22, 
+        "印刷所": 40, 
+        "折": 22
     }
-    col_widths = [width_mapping.get(c, 40) for c in available_top_cols]
+    col_widths = [width_mapping.get(c, 36) for c in available_top_cols]
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
@@ -243,21 +269,20 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
             ("ALIGN", (0, 0), (-1, -1), "LEFT"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
         ]
 
         for i, (_, row) in enumerate(sub_df.iterrows()):
-            val_102_check = str(row.get("納期上/中/下", row.get("納期2", "")))
+            val_102_check = str(row.get("納期2", ""))
             val_103_check = str(row.get("急ぎ", ""))
             is_urgent = (val_102_check == "確定" or val_103_check == "急")
 
             row_cells_1 = []
             for c in available_top_cols:
-                lookup_c = "納期上/中/下" if c == "納期2" else c
-                val_str = str(row[lookup_c]) if pd.notna(row[lookup_c]) else ""
-                if is_urgent and (c in ["納期上/中/下", "納期2", "急ぎ"]):
+                val_str = str(row[c]) if pd.notna(row[c]) else ""
+                if is_urgent and (c in ["納期2", "急ぎ"]):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", red_cell_style))
                 else:
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", cell_style))
@@ -283,7 +308,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         t = Table(table_data, colWidths=col_widths, repeatRows=1)
         t.setStyle(TableStyle(t_style))
         elements.append(t)
-        elements.append(Spacer(1, 4))
+        elements.append(Spacer(1, 3))
 
     doc.build(elements)
     buffer.seek(0)
@@ -361,7 +386,6 @@ if "api_records" not in st.session_state or url_order_no:
         with st.spinner(f"DBから受注番号: {url_order_no} のデータを取得中..."):
             st.session_state["api_records"] = fetch_pocket_records(target_order_no=url_order_no)
     else:
-        # 当月の初日と末日をデフォルトに設定
         today_date = date.today()
         default_start = date(today_date.year, today_date.month, 1)
         if today_date.month == 12:
@@ -380,7 +404,6 @@ with st.expander("🔍 検索条件・出力グループ軸の設定はこちら
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=True)
     target_date_field = "field-52" if "納期" in search_date_type else "field-1"
 
-    # デフォルトを当月初日〜当月末日に設定
     today_date = date.today()
     init_start = date(today_date.year, today_date.month, 1)
     if today_date.month == 12:
