@@ -21,7 +21,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ==========================================
-# 1. ページ基本設定 ＆ 濃紺シック・コンパクトCSS
+# 1. ページ基本設定 ＆ 濃紺シック・コンパクトCSS（はみ出し防止強化版）
 # ==========================================
 st.set_page_config(page_title="受注一覧表② 管理システム", layout="wide", initial_sidebar_state="collapsed")
 
@@ -80,15 +80,21 @@ dark_navy_theme_css = """
         font-weight: bold;
     }
     
+    /* === 画面のはみ出しを完全に防ぐコンパクトCSS（幅約20%削減・文字詰めの調整） === */
     div[data-testid="stDataEditor"] {
-        font-size: 12px !important;
-    }
-    div[data-testid="stDataEditor"] th {
-        padding: 4px 6px !important;
         font-size: 11px !important;
     }
+    div[data-testid="stDataEditor"] table {
+        width: 100% !important;
+    }
+    div[data-testid="stDataEditor"] th {
+        padding: 3px 4px !important;
+        font-size: 10px !important;
+        white-space: nowrap !important;
+    }
     div[data-testid="stDataEditor"] td {
-        padding: 2px 4px !important;
+        padding: 1px 3px !important;
+        font-size: 11px !important;
     }
 
     #MainMenu {visibility: hidden;}
@@ -207,7 +213,7 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成（刷本日は印刷所のすぐ後ろ） ---
+# --- 受注一覧表②のPDF生成 ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
@@ -641,7 +647,7 @@ if api_records:
             "4P": h_p4,
             "2P": h_p2,
             "印刷所": h_printer,
-            "刷本日": h_print_date,  # メインテーブル field-51
+            "刷本日": h_print_date,
             "折": h_folding,
             "無線日": parse_date_safe(rec_90.get("field-90_4")),
             "三方日": parse_date_safe(rec_90.get("field-90_5")),
@@ -679,9 +685,9 @@ if api_records:
             "_recordId": None,
             "_sub_90_id": None,
             "_sub_91_id": None,
-            "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
+            "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width="small"),
             "判型": st.column_config.TextColumn("判型", disabled=True, width="small"),
-            "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
+            "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width="small"),
             "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True),
             "納期2": st.column_config.SelectboxColumn(
                 "納期2",
@@ -692,23 +698,24 @@ if api_records:
             "急ぎ": st.column_config.SelectboxColumn(
                 "急ぎ",
                 options=["", "急"],
+                width="small",
                 help="急ぎ案件の場合は「急」を選択します (field-103)"
             ),
             "書名": st.column_config.TextColumn("書名", disabled=True, width="small"),
             "刷数": st.column_config.TextColumn("刷数", width="small"),
             "回数": st.column_config.TextColumn("回数", width="small"),
-            "単価": st.column_config.TextColumn("単価", disabled=True),
-            "製本数": st.column_config.TextColumn("製本数", disabled=True),
-            "製品預かり": st.column_config.TextColumn("製品預かり", disabled=True),
-            "総頁数": st.column_config.TextColumn("総頁数", disabled=True),
-            "32P": st.column_config.TextColumn("32P", disabled=True),
-            "16P": st.column_config.TextColumn("16P", disabled=True),
-            "8P": st.column_config.TextColumn("8P", disabled=True),
-            "4P": st.column_config.TextColumn("4P", disabled=True),
-            "2P": st.column_config.TextColumn("2P", disabled=True),
-            "印刷所": st.column_config.TextColumn("印刷所", disabled=True),
-            "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD"),  # 編集可能・MM/DD表記
-            "折": st.column_config.TextColumn("折", disabled=True),
+            "単価": st.column_config.TextColumn("単価", disabled=True, width="small"),
+            "製本数": st.column_config.TextColumn("製本数", disabled=True, width="small"),
+            "製品預かり": st.column_config.TextColumn("製品預かり", disabled=True, width="small"),
+            "総頁数": st.column_config.TextColumn("総頁数", disabled=True, width="small"),
+            "32P": st.column_config.TextColumn("32P", disabled=True, width="small"),
+            "16P": st.column_config.TextColumn("16P", disabled=True, width="small"),
+            "8P": st.column_config.TextColumn("8P", disabled=True, width="small"),
+            "4P": st.column_config.TextColumn("4P", disabled=True, width="small"),
+            "2P": st.column_config.TextColumn("2P", disabled=True, width="small"),
+            "印刷所": st.column_config.TextColumn("印刷所", disabled=True, width="small"),
+            "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD"),
+            "折": st.column_config.TextColumn("折", disabled=True, width="small"),
             "無線日": st.column_config.DateColumn("無線日", format="MM/DD"),
             "三方日": st.column_config.DateColumn("三方日", format="MM/DD"),
             "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD"),
@@ -766,7 +773,7 @@ if api_records:
                             "field-102": clean_val(row.get("納期2", "")),
                             "field-103": clean_val(row.get("急ぎ", "")),
                             "field-28": clean_val(row.get("刷数", "")),
-                            "field-51": date_to_str(row.get("刷本日")),  # メインテーブルの刷本日 (field-51)
+                            "field-51": date_to_str(row.get("刷本日")),
                             "field-45": clean_val(row.get("備考", "")),
                             "field-90": [sub_90_item],
                             "field-91": [sub_91_item]
