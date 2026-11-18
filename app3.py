@@ -323,7 +323,6 @@ def generate_order_excel_v2(df, group_type="publisher"):
     ws.title = "受注一覧表"
     ws.views.sheetView[0].showGridLines = True
 
-    # スタイル定義
     font_title = Font(name="Meiryo", size=14, bold=True, color="1E3A8A")
     font_sub = Font(name="Meiryo", size=9, color="64748B")
     font_group = Font(name="Meiryo", size=11, bold=True, color="1E3A8A")
@@ -354,12 +353,11 @@ def generate_order_excel_v2(df, group_type="publisher"):
     available_top_cols = [c for c in top_cols if c in df.columns]
     max_col_idx = len(available_top_cols)
 
-    # タイトル行
     ws.append([f"受注一覧表②（{'顧客グループ別（出版社順）' if group_type == 'publisher' else '判型グループ別（判型順）'}）"])
     ws.cell(row=1, column=1).font = font_title
     ws.append([f"発行日: {date.today().strftime('%Y年%m月%d日')}"])
     ws.cell(row=2, column=1).font = font_sub
-    ws.append([]) # 空行
+    ws.append([])
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
@@ -375,7 +373,6 @@ def generate_order_excel_v2(df, group_type="publisher"):
         ws.cell(row=current_row, column=1, value=f"{prefix_label}{g_name_display}{suffix_str}").font = font_group
         current_row += 1
 
-        # ヘッダー行出力
         header_row_idx = current_row
         ws.append(available_top_cols)
         for col_i in range(1, max_col_idx + 1):
@@ -393,7 +390,6 @@ def generate_order_excel_v2(df, group_type="publisher"):
             val_103_check = str(row.get("急ぎ", ""))
             is_urgent = (val_102_check == "確定" or val_103_check == "急")
 
-            # データ行
             data_row_idx = current_row
             row_vals = []
             for c in available_top_cols:
@@ -414,7 +410,6 @@ def generate_order_excel_v2(df, group_type="publisher"):
                 cell.alignment = align_center
             current_row += 1
 
-            # 備考行（2行目として結合）
             memo_row_idx = current_row
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
             ws.append([f"備考: {memo_val}"] + [""] * (max_col_idx - 1))
@@ -428,9 +423,8 @@ def generate_order_excel_v2(df, group_type="publisher"):
                 cell.alignment = align_left
             current_row += 1
 
-        current_row += 1  キスト用の空行
+        current_row += 1
 
-    # 列幅の自動調整（見やすさ考慮）
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
@@ -794,7 +788,6 @@ if api_records:
                     st.rerun()
 
     with col_d1:
-        # PDFと同じフォーマットのきれいなExcel生成関数を呼び出し
         excel_bytes = generate_order_excel_v2(edited_v2_df, group_type=current_group_type)
         st.download_button(
             label="📥 Excel でダウンロード",
