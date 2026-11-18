@@ -472,7 +472,7 @@ if "api_records" not in st.session_state or url_order_no:
         else:
             default_end = date(today_date.year, today_date.month + 1, 1) - timedelta(days=1)
             
-        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="", date_field="field-52")
+        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波", date_field="field-52")
 
 # ==========================================
 # 6. サイドバー（検索条件の設定）
@@ -492,11 +492,11 @@ with st.sidebar:
     t1_start = st.date_input("期間（開始）", value=init_start, key="v2_s")
     t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
     
-    # 出版社名検索ボックス（デフォルト：空欄＝全件対象にしてから除外もしやすく）
-    publisher_input = st.text_input("📖 出版社名で絞り込み（部分一致）", value="", key="v2_pub")
+    # 出版社名検索ボックス（デフォルト：岩波）
+    publisher_input = st.text_input("📖 出版社名で絞り込み（部分一致）", value="岩波", key="v2_pub")
     
-    # 「岩波」が除外するチェックボックス（）
-    exclude_iwanami = st.checkbox("「岩波」を含む出版社（）をすべて除外する", value=True, key="v2_exc_iwanami")
+    # 「岩波」が含まれる出版社をすべて除外するチェックボックス（デフォルト OFF）
+    exclude_iwanami = st.checkbox("「岩波」を含む出版社（岩波〇〇など）をすべて除外する", value=False, key="v2_exc_iwanami")
     
     st.markdown("---")
     group_axis_choice = st.radio(
