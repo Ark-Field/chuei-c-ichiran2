@@ -25,7 +25,7 @@ from openpyxl.utils import get_column_letter
 # ==========================================
 st.set_page_config(page_title="受注一覧表② 管理システム", layout="wide", initial_sidebar_state="expanded")
 
-# サイドバーの状態を受け取るためのセッション初期化
+# フルスクリーンモードの状態保持用セッション初期化
 if "fullscreen_mode" not in st.session_state:
     st.session_state["fullscreen_mode"] = False
 
@@ -33,13 +33,10 @@ if "fullscreen_mode" not in st.session_state:
 if st.session_state["fullscreen_mode"]:
     dynamic_layout_css = """
         <style>
-        /* ヘッダー・フッター・メニューを完全に非表示 */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
         [data-testid="stHeader"] {display: none !important;}
-        
-        /* サイドバーを非表示にし、メインエリアを最大化 */
         [data-testid="stSidebar"] {display: none !important;}
         [data-testid="stMainBlockContainer"] {
             max-width: 100% !important;
@@ -476,18 +473,10 @@ if "api_records" not in st.session_state or url_order_no:
         st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, date_field="field-52")
 
 # ==========================================
-# 6. サイドバー（全画面切り替えスイッチ＆検索条件）
+# 6. サイドバー（検索条件の設定）
 # ==========================================
 with st.sidebar:
-    st.header("⚙️ 表示・検索設定")
-    
-    # フルスクリーンモード切り替えスイッチ
-    fs_toggle = st.toggle("🖥️ 画面を広々表示（フルスクリーン）", value=st.session_state["fullscreen_mode"], key="fs_switch")
-    if fs_toggle != st.session_state["fullscreen_mode"]:
-        st.session_state["fullscreen_mode"] = fs_toggle
-        st.rerun()
-
-    st.markdown("---")
+    st.header("⚙️ 検索条件の設定")
     search_date_type = st.radio("📅 期間検索の基準を選択", ["納期（field-52）", "受注日（field-1）"], horizontal=False)
     target_date_field = "field-52" if "納期" in search_date_type else "field-1"
 
@@ -528,6 +517,14 @@ if search_clicked:
 # 7. メイン画面
 # ==========================================
 st.header("📋 受注一覧表（各日付更新）")
+
+# メイン画面上部にフルスクリーン切り替えスイッチを配置
+fs_toggle = st.toggle("🖥️ 画面を広々表示（フルスクリーンモード）", value=st.session_state["fullscreen_mode"], key="fs_main_switch")
+if fs_toggle != st.session_state["fullscreen_mode"]:
+    st.session_state["fullscreen_mode"] = fs_toggle
+    st.rerun()
+
+st.markdown("---")
 
 api_records = st.session_state.get("api_records", None)
 
@@ -625,7 +622,7 @@ if api_records:
     df_v2 = pd.DataFrame(flat_data)
 
     if len(df_v2) > 0:
-        st.success(f"✨ 対象レコード **{len(df_v2)} 件** を取得しました。（※サイドバーのトグルでいつでも全画面の切り替えが可能です）")
+        st.success(f"✨ 対象レコード **{len(df_v2)} 件** を取得しました。")
 
         if current_group_type == "publisher":
             sort_keys = ["出版社名", "納期", "納期2", "判型"]
