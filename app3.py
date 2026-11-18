@@ -248,15 +248,13 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
         ]
 
-        for i, (_, row) in enumerate(sub_df.iterrows():
-            # 画面側は「納期2」になっているので、PDF側では元のキー「納期上/中/下」または「納期2」に対応できるよう配慮
+        for i, (_, row) in enumerate(sub_df.iterrows()):
             val_102_check = str(row.get("納期上/中/下", row.get("納期2", "")))
             val_103_check = str(row.get("急ぎ", ""))
             is_urgent = (val_102_check == "確定" or val_103_check == "急")
 
             row_cells_1 = []
             for c in available_top_cols:
-                # PDF上の列名を考慮
                 lookup_c = "納期上/中/下" if c == "納期2" else c
                 val_str = str(row[lookup_c]) if pd.notna(row[lookup_c]) else ""
                 if is_urgent and (c in ["納期上/中/下", "納期2", "急ぎ"]):
