@@ -21,7 +21,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ==========================================
-# 1. ページ基本設定 ＆ 濃紺シック・コンパクトCSS（はみ出し防止強化版）
+# 1. ページ基本設定 ＆ 項目名幅合わせ・極限コンパクトCSS
 # ==========================================
 st.set_page_config(page_title="受注一覧表② 管理システム", layout="wide", initial_sidebar_state="collapsed")
 
@@ -80,21 +80,21 @@ dark_navy_theme_css = """
         font-weight: bold;
     }
     
-    /* === 画面のはみ出しを完全に防ぐコンパクトCSS（幅約20%削減・文字詰めの調整） === */
     div[data-testid="stDataEditor"] {
         font-size: 11px !important;
     }
     div[data-testid="stDataEditor"] table {
-        width: 100% !important;
+        width: auto !important;
     }
     div[data-testid="stDataEditor"] th {
-        padding: 3px 4px !important;
+        padding: 2px 3px !important;
         font-size: 10px !important;
         white-space: nowrap !important;
     }
     div[data-testid="stDataEditor"] td {
-        padding: 1px 3px !important;
+        padding: 1px 2px !important;
         font-size: 11px !important;
+        white-space: nowrap !important;
     }
 
     #MainMenu {visibility: hidden;}
@@ -181,7 +181,6 @@ def date_to_str(val):
     parsed = parse_date_safe(val)
     return parsed.strftime("%Y-%m-%d") if parsed else ""
 
-# 日付フォーマット関数（MM/DD形式に変換）
 def format_date_pdf(val):
     if pd.isna(val) or not val:
         return ""
@@ -190,7 +189,6 @@ def format_date_pdf(val):
     parsed = parse_date_safe(val)
     return parsed.strftime("%m/%d") if parsed else str(val)
 
-# --- @pocket データ更新用関数 ---
 def update_pocket_record(record_id, update_data):
     if not record_id:
         return False, "レコードIDが不正です"
@@ -443,12 +441,12 @@ def generate_order_excel_v2(df, group_type="publisher"):
     return output
 
 # ==========================================
-# 5. データ取得関数
+# 5. データ取得関数（全件取得ベース）
 # ==========================================
 query_params = st.query_params
 url_order_no = query_params.get("ord", None)
 
-def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-52"):
+def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, date_field="field-52"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     params = {}
@@ -461,8 +459,6 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
             query_parts.append(f'{date_field} >= "{start_str}" and {date_field} <= "{end_str}"')
-        if target_publisher:
-            query_parts.append(f'field-8 like "{target_publisher}"')
         if query_parts:
             params["query"] = " and ".join(query_parts)
     
@@ -521,7 +517,7 @@ if "api_records" not in st.session_state or url_order_no:
         else:
             default_end = date(today_date.year, today_date.month + 1, 1) - timedelta(days=1)
             
-        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="株式会社 岩波書店", date_field="field-52")
+        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, date_field="field-52")
 
 # ==========================================
 # 6. メイン画面
@@ -545,7 +541,8 @@ with st.expander("🔍 検索条件・出力グループ軸の設定はこちら
     with col_s2:
         t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
     
-    publisher_input = st.text_input("📖 出版社名で絞り込み", value="株式会社 岩波書店", key="v2_pub")
+    # 岩波書店以外の除外チェックボックス
+    exclude_iwanami = st.checkbox("「株式会社 岩波書店」を除外する（岩波書店以外を抽出）", value=False, key="v2_exc_iwanami")
     
     st.markdown("---")
     group_axis_choice = st.radio(
@@ -564,7 +561,6 @@ if search_clicked:
         st.session_state["api_records"] = fetch_pocket_records(
             start_date=t1_start, 
             end_date=t1_end, 
-            target_publisher=publisher_input if publisher_input else None,
             date_field=target_date_field
         )
     st.rerun()
@@ -572,8 +568,6 @@ if search_clicked:
 api_records = st.session_state.get("api_records", None)
 
 if api_records:
-    st.success(f"✨ 対象レコード **{len(api_records)} 件** を取得しました。")
-    
     flat_data = []
     for record_idx, r in enumerate(api_records):
         rec_id = r.get("_recordId", "")
@@ -591,6 +585,11 @@ if api_records:
             val_103 = ""
 
         h_pub = clean_val(r.get("field-8", ""))
+        
+        # 岩波書店以外チェックがONの場合、ここで除外
+        if exclude_iwanami and "岩波書店" in h_pub:
+            continue
+
         h_title = clean_val(r.get("field-13", ""))
         h_format = clean_val(r.get("field-23", ""))
         h_qty = clean_val(r.get("field-4", ""))
@@ -603,7 +602,7 @@ if api_records:
         h_p4 = clean_val(r.get("field-33", ""))
         h_p2 = clean_val(r.get("field-34", ""))
         h_printer = clean_val(r.get("field-14", ""))
-        h_print_date = parse_date_safe(r.get("field-51"))  # 刷本日 (field-51)
+        h_print_date = parse_date_safe(r.get("field-51"))
         h_folding = clean_val(r.get("field-16", ""))
         h_memo = clean_val(r.get("field-45", ""))
         
@@ -662,152 +661,158 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
-    if current_group_type == "publisher":
-        sort_keys = ["出版社名", "納期", "納期2", "判型"]
+    if len(df_v2) > 0:
+        st.success(f"✨ 対象レコード **{len(df_v2)} 件** を取得しました。")
+
+        if current_group_type == "publisher":
+            sort_keys = ["出版社名", "納期", "納期2", "判型"]
+        else:
+            sort_keys = ["判型", "納期", "納期2", "出版社名"]
+
+        df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True, True], na_position="last").reset_index(drop=True)
+
+        edited_v2_df = st.data_editor(
+            df_v2,
+            num_rows="fixed",
+            key="grid_v2",
+            use_container_width=False,
+            column_config={
+                "更新": st.column_config.CheckboxColumn("更新", required=True, width="small"),
+                "詳細": st.column_config.LinkColumn(
+                    "🔗 @DB詳細",
+                    help="@pocketの該当データ画面へジャンプします",
+                    display_text="📝 詳細",
+                    width="small"
+                ),
+                "_record_idx": None,
+                "_recordId": None,
+                "_sub_90_id": None,
+                "_sub_91_id": None,
+                "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width="small"),
+                "判型": st.column_config.TextColumn("判型", disabled=True, width="small"),
+                "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width="small"),
+                "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True, width="small"),
+                "納期2": st.column_config.SelectboxColumn(
+                    "納期2",
+                    options=["", "確定", "上旬", "中旬", "下旬"],
+                    width="small",
+                    help="納期の上旬・中旬・下旬・確定を選択します (field-102)"
+                ),
+                "急ぎ": st.column_config.SelectboxColumn(
+                    "急ぎ",
+                    options=["", "急"],
+                    width="small",
+                    help="急ぎ案件の場合は「急」を選択します (field-103)"
+                ),
+                "書名": st.column_config.TextColumn("書名", disabled=True, width="medium"),
+                "刷数": st.column_config.TextColumn("刷数", width="small"),
+                "回数": st.column_config.TextColumn("回数", width="small"),
+                "単価": st.column_config.TextColumn("単価", disabled=True, width="small"),
+                "製本数": st.column_config.TextColumn("製本数", disabled=True, width="small"),
+                "製品預かり": st.column_config.TextColumn("製品預かり", disabled=True, width="small"),
+                "総頁数": st.column_config.TextColumn("総頁数", disabled=True, width="small"),
+                "32P": st.column_config.TextColumn("32P", disabled=True, width="small"),
+                "16P": st.column_config.TextColumn("16P", disabled=True, width="small"),
+                "8P": st.column_config.TextColumn("8P", disabled=True, width="small"),
+                "4P": st.column_config.TextColumn("4P", disabled=True, width="small"),
+                "2P": st.column_config.TextColumn("2P", disabled=True, width="small"),
+                "印刷所": st.column_config.TextColumn("印刷所", disabled=True, width="small"),
+                "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD", width="small"),
+                "折": st.column_config.TextColumn("折", disabled=True, width="small"),
+                "無線日": st.column_config.DateColumn("無線日", format="MM/DD", width="small"),
+                "三方日": st.column_config.DateColumn("三方日", format="MM/DD", width="small"),
+                "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD", width="small"),
+                "入品日": st.column_config.DateColumn("入品日", format="MM/DD", width="small"),
+                "表紙日付": st.column_config.DateColumn("表紙日付", format="MM/DD", width="small"),
+                "カード日付": st.column_config.DateColumn("カード日付", format="MM/DD", width="small"),
+                "カバー日付": st.column_config.DateColumn("カバー日付", format="MM/DD", width="small"),
+                "帯日付": st.column_config.DateColumn("帯日付", format="MM/DD", width="small"),
+                "備考": st.column_config.TextColumn("備考", width="medium")
+            }
+        )
+
+        # --- @pocket一括保存ボタンの処理 ---
+        st.markdown("---")
+        col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
+        
+        with col_save:
+            if st.button("💾 変更した行を @pocket に保存", type="primary", key="save_pocket_btn"):
+                update_rows = edited_v2_df[edited_v2_df["更新"] == True]
+                if len(update_rows) == 0:
+                    st.warning("⚠️ 「更新」にチェックが入っている行がありません。")
+                else:
+                    success_count = 0
+                    error_messages = []
+                    with st.spinner("@pocketへデータを保存中..."):
+                        for _, row in update_rows.iterrows():
+                            r_id = row.get("_recordId", "")
+                            sub_90_id = row.get("_sub_90_id", "")
+                            sub_91_id = row.get("_sub_91_id", "")
+                            
+                            sub_90_item = {
+                                "record": {
+                                    "field-90_4": date_to_str(row.get("無線日")),
+                                    "field-90_5": date_to_str(row.get("三方日")),
+                                    "field-90_6": date_to_str(row.get("仕上日")),
+                                    "field-90_10": date_to_str(row.get("入品日"))
+                                }
+                            }
+                            if sub_90_id:
+                                sub_90_item["Id"] = sub_90_id
+
+                            sub_91_item = {
+                                "record": {
+                                    "field-91_1": date_to_str(row.get("表紙日付")),
+                                    "field-91_9": date_to_str(row.get("カード日付")),
+                                    "field-91_5": date_to_str(row.get("カバー日付")),
+                                    "field-91_13": date_to_str(row.get("帯日付"))
+                                }
+                            }
+                            if sub_91_id:
+                                sub_91_item["Id"] = sub_91_id
+
+                            payload = {
+                                "field-2": clean_val(row.get("受注番号", "")),
+                                "field-102": clean_val(row.get("納期2", "")),
+                                "field-103": clean_val(row.get("急ぎ", "")),
+                                "field-28": clean_val(row.get("刷数", "")),
+                                "field-51": date_to_str(row.get("刷本日")),
+                                "field-45": clean_val(row.get("備考", "")),
+                                "field-90": [sub_90_item],
+                                "field-91": [sub_91_item]
+                            }
+                            
+                            ok, msg = update_pocket_record(r_id, payload)
+                            if ok:
+                                success_count += 1
+                            else:
+                                error_messages.append(f"ID {r_id}: {msg}")
+                    
+                    if success_count > 0:
+                        st.success(f"✨ **{success_count} 件** のデータを @pocket へ正常に保存しました！")
+                    if error_messages:
+                        for err in error_messages:
+                            st.error(f"❌ 保存エラー: {err}")
+                    if success_count > 0:
+                        st.rerun()
+
+        with col_d1:
+            excel_bytes = generate_order_excel_v2(edited_v2_df, group_type=current_group_type)
+            st.download_button(
+                label="📥 Excel でダウンロード",
+                data=excel_bytes,
+                file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        with col_d2:
+            pdf_bytes = generate_order_pdf_v2(edited_v2_df, group_type=current_group_type)
+            st.download_button(
+                label=f"🖨️ A3 PDF ダウンロード（{group_axis_choice[:2]}）",
+                data=pdf_bytes,
+                file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf"
+            )
     else:
-        sort_keys = ["判型", "納期", "納期2", "出版社名"]
-
-    df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True, True], na_position="last").reset_index(drop=True)
-
-    edited_v2_df = st.data_editor(
-        df_v2,
-        num_rows="fixed",
-        key="grid_v2",
-        use_container_width=True,
-        column_config={
-            "更新": st.column_config.CheckboxColumn("更新", required=True),
-            "詳細": st.column_config.LinkColumn(
-                "🔗 @DB詳細",
-                help="@pocketの該当データ画面へジャンプします",
-                display_text="📝 詳細を開く"
-            ),
-            "_record_idx": None,
-            "_recordId": None,
-            "_sub_90_id": None,
-            "_sub_91_id": None,
-            "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width="small"),
-            "判型": st.column_config.TextColumn("判型", disabled=True, width="small"),
-            "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width="small"),
-            "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True),
-            "納期2": st.column_config.SelectboxColumn(
-                "納期2",
-                options=["", "確定", "上旬", "中旬", "下旬"],
-                width="small",
-                help="納期の上旬・中旬・下旬・確定を選択します (field-102)"
-            ),
-            "急ぎ": st.column_config.SelectboxColumn(
-                "急ぎ",
-                options=["", "急"],
-                width="small",
-                help="急ぎ案件の場合は「急」を選択します (field-103)"
-            ),
-            "書名": st.column_config.TextColumn("書名", disabled=True, width="small"),
-            "刷数": st.column_config.TextColumn("刷数", width="small"),
-            "回数": st.column_config.TextColumn("回数", width="small"),
-            "単価": st.column_config.TextColumn("単価", disabled=True, width="small"),
-            "製本数": st.column_config.TextColumn("製本数", disabled=True, width="small"),
-            "製品預かり": st.column_config.TextColumn("製品預かり", disabled=True, width="small"),
-            "総頁数": st.column_config.TextColumn("総頁数", disabled=True, width="small"),
-            "32P": st.column_config.TextColumn("32P", disabled=True, width="small"),
-            "16P": st.column_config.TextColumn("16P", disabled=True, width="small"),
-            "8P": st.column_config.TextColumn("8P", disabled=True, width="small"),
-            "4P": st.column_config.TextColumn("4P", disabled=True, width="small"),
-            "2P": st.column_config.TextColumn("2P", disabled=True, width="small"),
-            "印刷所": st.column_config.TextColumn("印刷所", disabled=True, width="small"),
-            "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD"),
-            "折": st.column_config.TextColumn("折", disabled=True, width="small"),
-            "無線日": st.column_config.DateColumn("無線日", format="MM/DD"),
-            "三方日": st.column_config.DateColumn("三方日", format="MM/DD"),
-            "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD"),
-            "入品日": st.column_config.DateColumn("入品日", format="MM/DD"),
-            "表紙日付": st.column_config.DateColumn("表紙日付", format="MM/DD"),
-            "カード日付": st.column_config.DateColumn("カード日付", format="MM/DD"),
-            "カバー日付": st.column_config.DateColumn("カバー日付", format="MM/DD"),
-            "帯日付": st.column_config.DateColumn("帯日付", format="MM/DD"),
-            "備考": st.column_config.TextColumn("備考", width="medium")
-        }
-    )
-
-    # --- @pocket一括保存ボタンの処理 ---
-    st.markdown("---")
-    col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
-    
-    with col_save:
-        if st.button("💾 変更した行を @pocket に保存", type="primary", key="save_pocket_btn"):
-            update_rows = edited_v2_df[edited_v2_df["更新"] == True]
-            if len(update_rows) == 0:
-                st.warning("⚠️ 「更新」にチェックが入っている行がありません。")
-            else:
-                success_count = 0
-                error_messages = []
-                with st.spinner("@pocketへデータを保存中..."):
-                    for _, row in update_rows.iterrows():
-                        r_id = row.get("_recordId", "")
-                        sub_90_id = row.get("_sub_90_id", "")
-                        sub_91_id = row.get("_sub_91_id", "")
-                        
-                        sub_90_item = {
-                            "record": {
-                                "field-90_4": date_to_str(row.get("無線日")),
-                                "field-90_5": date_to_str(row.get("三方日")),
-                                "field-90_6": date_to_str(row.get("仕上日")),
-                                "field-90_10": date_to_str(row.get("入品日"))
-                            }
-                        }
-                        if sub_90_id:
-                            sub_90_item["Id"] = sub_90_id
-
-                        sub_91_item = {
-                            "record": {
-                                "field-91_1": date_to_str(row.get("表紙日付")),
-                                "field-91_9": date_to_str(row.get("カード日付")),
-                                "field-91_5": date_to_str(row.get("カバー日付")),
-                                "field-91_13": date_to_str(row.get("帯日付"))
-                            }
-                        }
-                        if sub_91_id:
-                            sub_91_item["Id"] = sub_91_id
-
-                        payload = {
-                            "field-2": clean_val(row.get("受注番号", "")),
-                            "field-102": clean_val(row.get("納期2", "")),
-                            "field-103": clean_val(row.get("急ぎ", "")),
-                            "field-28": clean_val(row.get("刷数", "")),
-                            "field-51": date_to_str(row.get("刷本日")),
-                            "field-45": clean_val(row.get("備考", "")),
-                            "field-90": [sub_90_item],
-                            "field-91": [sub_91_item]
-                        }
-                        
-                        ok, msg = update_pocket_record(r_id, payload)
-                        if ok:
-                            success_count += 1
-                        else:
-                            error_messages.append(f"ID {r_id}: {msg}")
-                
-                if success_count > 0:
-                    st.success(f"✨ **{success_count} 件** のデータを @pocket へ正常に保存しました！")
-                if error_messages:
-                    for err in error_messages:
-                        st.error(f"❌ 保存エラー: {err}")
-                if success_count > 0:
-                    st.rerun()
-
-    with col_d1:
-        excel_bytes = generate_order_excel_v2(edited_v2_df, group_type=current_group_type)
-        st.download_button(
-            label="📥 Excel でダウンロード",
-            data=excel_bytes,
-            file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    with col_d2:
-        pdf_bytes = generate_order_pdf_v2(edited_v2_df, group_type=current_group_type)
-        st.download_button(
-            label=f"🖨️ A3 PDF ダウンロード（{group_axis_choice[:2]}）",
-            data=pdf_bytes,
-            file_name=f"受注一覧表2_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf"
-        )
+        st.warning("⚠️ 条件に一致するデータが見つかりませんでした。")
 else:
     st.warning("⚠️ 対象データが見つかりませんでした。")
