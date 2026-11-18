@@ -16,7 +16,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
 # ==========================================
-# 1. ページ基本設定 ＆ 濃紺シックデザインCSS
+# 1. ページ基本設定 ＆ 濃紺シック・コンパクトCSS
 # ==========================================
 st.set_page_config(page_title="受注一覧表② 管理システム", layout="wide", initial_sidebar_state="collapsed")
 
@@ -74,6 +74,19 @@ dark_navy_theme_css = """
         color: #1E293B;
         font-weight: bold;
     }
+    
+    /* === 画面の横スクロール軽減用 コンパクトCSS === */
+    div[data-testid="stDataEditor"] {
+        font-size: 12px !important;
+    }
+    div[data-testid="stDataEditor"] th {
+        padding: 4px 6px !important;
+        font-size: 11px !important;
+    }
+    div[data-testid="stDataEditor"] td {
+        padding: 2px 4px !important;
+    }
+
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -197,7 +210,7 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成（出版社名の後ろに判型を追加、カスタムソート適用） ---
+# --- 受注一覧表②のPDF生成（日付 MM/DD、出版社名後ろに判型） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
@@ -217,7 +230,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         Spacer(1, 4),
     ]
 
-    # 出版社名の後ろに「判型」を追加
     top_cols = [
         "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
@@ -240,7 +252,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         "カバー日付": 36, 
         "帯日付": 36,
         "出版社名": 60, 
-        "判型": 28,  # 3文字幅程度に調整
+        "判型": 28,
         "書名": 70, 
         "刷数": 22, 
         "回数": 22,
@@ -549,7 +561,7 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
-    # ご指定の並び順: 顧客グループ別なら [出版社名, 納期, 納期2, 判型]、判型グループ別なら [判型, 納期, 納期2, 出版社名]
+    # 納期 ➔ 納期2 ➔ 判型 のソート順
     if current_group_type == "publisher":
         sort_keys = ["出版社名", "納期", "納期2", "判型"]
     else:
@@ -557,6 +569,7 @@ if api_records:
 
     df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True, True], na_position="last").reset_index(drop=True)
 
+    # データエディタ（各日付列を MM/DD 表示に設定）
     edited_v2_df = st.data_editor(
         df_v2,
         num_rows="fixed",
@@ -576,7 +589,7 @@ if api_records:
             "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
             "判型": st.column_config.TextColumn("判型", disabled=True, width="small"),
             "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
-            "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
+            "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True),
             "納期2": st.column_config.SelectboxColumn(
                 "納期2",
                 options=["", "確定", "上旬", "中旬", "下旬"],
@@ -601,16 +614,16 @@ if api_records:
             "4P": st.column_config.TextColumn("4P", disabled=True),
             "2P": st.column_config.TextColumn("2P", disabled=True),
             "印刷所": st.column_config.TextColumn("印刷所", disabled=True),
-            "折本日": st.column_config.DateColumn("折本日", format="YYYY-MM-DD"),
+            "折本日": st.column_config.DateColumn("折本日", format="MM/DD"),
             "折": st.column_config.TextColumn("折", disabled=True),
-            "無線日": st.column_config.DateColumn("無線日", format="YYYY-MM-DD"),
-            "三方日": st.column_config.DateColumn("三方日", format="YYYY-MM-DD"),
-            "仕上日": st.column_config.DateColumn("仕上日", format="YYYY-MM-DD"),
-            "入品日": st.column_config.DateColumn("入品日", format="YYYY-MM-DD"),
-            "表紙日付": st.column_config.DateColumn("表紙日付", format="YYYY-MM-DD"),
-            "カード日付": st.column_config.DateColumn("カード日付", format="YYYY-MM-DD"),
-            "カバー日付": st.column_config.DateColumn("カバー日付", format="YYYY-MM-DD"),
-            "帯日付": st.column_config.DateColumn("帯日付", format="YYYY-MM-DD"),
+            "無線日": st.column_config.DateColumn("無線日", format="MM/DD"),
+            "三方日": st.column_config.DateColumn("三方日", format="MM/DD"),
+            "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD"),
+            "入品日": st.column_config.DateColumn("入品日", format="MM/DD"),
+            "表紙日付": st.column_config.DateColumn("表紙日付", format="MM/DD"),
+            "カード日付": st.column_config.DateColumn("カード日付", format="MM/DD"),
+            "カバー日付": st.column_config.DateColumn("カバー日付", format="MM/DD"),
+            "帯日付": st.column_config.DateColumn("帯日付", format="MM/DD"),
             "備考": st.column_config.TextColumn("備考", width="medium")
         }
     )
