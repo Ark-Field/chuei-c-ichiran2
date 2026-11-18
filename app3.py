@@ -158,6 +158,15 @@ def date_to_str(val):
     parsed = parse_date_safe(val)
     return parsed.strftime("%Y-%m-%d") if parsed else ""
 
+# PDF用の日付フォーマット関数（MM/DD形式に変換）
+def format_date_pdf(val):
+    if pd.isna(val) or not val:
+        return ""
+    if isinstance(val, (date, datetime)):
+        return val.strftime("%m/%d")
+    parsed = parse_date_safe(val)
+    return parsed.strftime("%m/%d") if parsed else str(val)
+
 def to_excel_bytes(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -188,10 +197,9 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
-# --- 受注一覧表②のPDF生成（納期の次に「納期2」を追加し全体幅を最適化） ---
+# --- 受注一覧表②のPDF生成（日付を MM/DD にフォーマット） ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
-    # A3横サイズの余白を狭めて横幅を有効活用
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=14, leading=16, textColor=colors.HexColor("#1E3A8A"))
@@ -209,7 +217,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         Spacer(1, 4),
     ]
 
-    # 「納期」の次に「納期2」を配置
     top_cols = [
         "受注番号", "納期", "納期2", "急ぎ", "出版社名", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
@@ -217,22 +224,20 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
-    # A3横幅に収まるよう全体を少しずつスリムに調整（納期2は幅24〜26）
     width_mapping = {
         "受注番号": 42, 
-        "納期": 42, 
+        "納期": 38, 
         "納期2": 26, 
         "急ぎ": 22, 
-        "折本日": 40, 
-        "無線日": 40, 
-        "三方日": 40, 
-        "仕上日": 40, 
-        "入品日": 40,
-        "表紙日付": 40, 
-        "カード日付": 40, 
-        "カバー日付": 40, 
-        "帯日付": 40,
-        "出版社Name": 60, 
+        "折本日": 36, 
+        "無線日": 36, 
+        "三方日": 36, 
+        "仕上日": 36, 
+        "入品日": 36,
+        "表紙日付": 36, 
+        "カード日付": 36, 
+        "カバー日付": 36, 
+        "帯日付": 36,
         "出版社名": 60, 
         "書名": 75, 
         "刷数": 22, 
@@ -253,6 +258,9 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
+
+    # 日付としてフォーマットする列のリスト
+    date_cols_set = {"納期", "折本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
 
     for g_val in groups:
         g_name_display = g_val if g_val else "（未設定）"
@@ -281,7 +289,15 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
             row_cells_1 = []
             for c in available_top_cols:
-                val_str = str(row[c]) if pd.notna(row[c]) else ""
+                lookup_c = "納期上/中/下" if c == "納期2" and "納期上/中/下" in row else c
+                raw_val = row.get(lookup_c, row.get(c, ""))
+                
+                # 日付列の場合はMM/DD形式に変換
+                if c in date_cols_set:
+                    val_str = format_date_pdf(raw_val)
+                else:
+                    val_str = str(raw_val) if pd.notna(raw_val) else ""
+
                 if is_urgent and (c in ["納期2", "急ぎ"]):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", red_cell_style))
                 else:
