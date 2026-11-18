@@ -399,7 +399,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
 query_params = st.query_params
 url_order_no = query_params.get("ord", None)
 
-def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, date_field="field-52"):
+def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-52"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     params = {}
@@ -412,6 +412,8 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, d
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
             query_parts.append(f'{date_field} >= "{start_str}" and {date_field} <= "{end_str}"')
+        if target_publisher:
+            query_parts.append(f'field-8 like "{target_publisher}"')
         if query_parts:
             params["query"] = " and ".join(query_parts)
     
@@ -470,7 +472,7 @@ if "api_records" not in st.session_state or url_order_no:
         else:
             default_end = date(today_date.year, today_date.month + 1, 1) - timedelta(days=1)
             
-        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, date_field="field-52")
+        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="株式会社 岩波書店", date_field="field-52")
 
 # ==========================================
 # 6. サイドバー（検索条件の設定）
@@ -490,7 +492,10 @@ with st.sidebar:
     t1_start = st.date_input("期間（開始）", value=init_start, key="v2_s")
     t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
     
-    exclude_iwanami = st.checkbox("「株式会社 岩波書店」を除外する（岩波書店以外）", value=False, key="v2_exc_iwanami")
+    # 出版社名検索ボックス（デフォルト：株式会社 岩波書店）
+    publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波書店", key="v2_pub")
+    
+    exclude_iwanami = st.checkbox("「岩波書店」を除外する（岩波書店以外）", value=False, key="v2_exc_iwanami")
     
     st.markdown("---")
     group_axis_choice = st.radio(
@@ -509,6 +514,7 @@ if search_clicked:
         st.session_state["api_records"] = fetch_pocket_records(
             start_date=t1_start, 
             end_date=t1_end, 
+            target_publisher=publisher_input if publisher_input else None,
             date_field=target_date_field
         )
     st.rerun()
