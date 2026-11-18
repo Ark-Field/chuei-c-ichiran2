@@ -15,6 +15,11 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
+# openpyxl関連のインポート（きれいなExcel出力用）
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
 # ==========================================
 # 1. ページ基本設定 ＆ 濃紺シック・コンパクトCSS
 # ==========================================
@@ -75,7 +80,6 @@ dark_navy_theme_css = """
         font-weight: bold;
     }
     
-    /* === 画面の横スクロール軽減用 コンパクトCSS === */
     div[data-testid="stDataEditor"] {
         font-size: 12px !important;
     }
@@ -171,7 +175,7 @@ def date_to_str(val):
     parsed = parse_date_safe(val)
     return parsed.strftime("%Y-%m-%d") if parsed else ""
 
-# PDF用の日付フォーマット関数（MM/DD形式に変換）
+# 日付フォーマット関数（MM/DD形式に変換）
 def format_date_pdf(val):
     if pd.isna(val) or not val:
         return ""
@@ -179,13 +183,6 @@ def format_date_pdf(val):
         return val.strftime("%m/%d")
     parsed = parse_date_safe(val)
     return parsed.strftime("%m/%d") if parsed else str(val)
-
-def to_excel_bytes(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Sheet1")
-    output.seek(0)
-    return output
 
 # --- @pocket データ更新用関数 ---
 def update_pocket_record(record_id, update_data):
@@ -238,35 +235,12 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     available_top_cols = [c for c in top_cols if c in df.columns]
 
     width_mapping = {
-        "受注番号": 42, 
-        "納期": 38, 
-        "納期2": 26, 
-        "急ぎ": 22, 
-        "折本日": 36, 
-        "無線日": 36, 
-        "三方日": 36, 
-        "仕上日": 36, 
-        "入品日": 36,
-        "表紙日付": 36, 
-        "カード日付": 36, 
-        "カバー日付": 36, 
-        "帯日付": 36,
-        "出版社名": 60, 
-        "判型": 28,
-        "書名": 70, 
-        "刷数": 22, 
-        "回数": 22,
-        "単価": 32, 
-        "製本数": 38, 
-        "製品預かり": 38, 
-        "総頁数": 32, 
-        "32P": 22, 
-        "16P": 22,
-        "8P": 22, 
-        "4P": 22, 
-        "2P": 22, 
-        "印刷所": 40, 
-        "折": 22
+        "受注番号": 42, "納期": 38, "納期2": 26, "急ぎ": 22, 
+        "折本日": 36, "無線日": 36, "三方日": 36, "仕上日": 36, "入品日": 36,
+        "表紙日付": 36, "カード日付": 36, "カバー日付": 36, "帯日付": 36,
+        "出版社名": 60, "判型": 28, "書名": 70, "刷数": 22, "回数": 22,
+        "単価": 32, "製本数": 38, "製品預かり": 38, "総頁数": 32, 
+        "32P": 22, "16P": 22, "8P": 22, "4P": 22, "2P": 22, "印刷所": 40, "折": 22
     }
     col_widths = [width_mapping.get(c, 36) for c in available_top_cols]
 
@@ -341,6 +315,134 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     doc.build(elements)
     buffer.seek(0)
     return buffer
+
+# --- PDFと同じフォーマットのきれいなExcel生成関数 ---
+def generate_order_excel_v2(df, group_type="publisher"):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "受注一覧表"
+    ws.views.sheetView[0].showGridLines = True
+
+    # スタイル定義
+    font_title = Font(name="Meiryo", size=14, bold=True, color="1E3A8A")
+    font_sub = Font(name="Meiryo", size=9, color="64748B")
+    font_group = Font(name="Meiryo", size=11, bold=True, color="1E3A8A")
+    font_header = Font(name="Meiryo", size=9, bold=True, color="FFFFFF")
+    font_cell = Font(name="Meiryo", size=9, color="0F172A")
+    font_red_cell = Font(name="Meiryo", size=9, bold=True, color="DC2626")
+    font_memo = Font(name="Meiryo", size=9, bold=True, color="0F172A")
+
+    fill_header = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    fill_urgent = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    fill_memo = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+
+    border_thin = Border(
+        left=Side(style="thin", color="64748B"),
+        right=Side(style="thin", color="64748B"),
+        top=Side(style="thin", color="64748B"),
+        bottom=Side(style="thin", color="64748B")
+    )
+
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_left = Alignment(horizontal="left", vertical="center")
+
+    top_cols = [
+        "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "32P", "16P", "8P", "4P", "2P", "印刷所", "折本日", "折", "無線日", "三方日", "仕上日", "入品日",
+        "表紙日付", "カード日付", "カバー日付", "帯日付"
+    ]
+    available_top_cols = [c for c in top_cols if c in df.columns]
+    max_col_idx = len(available_top_cols)
+
+    # タイトル行
+    ws.append([f"受注一覧表②（{'顧客グループ別（出版社順）' if group_type == 'publisher' else '判型グループ別（判型順）'}）"])
+    ws.cell(row=1, column=1).font = font_title
+    ws.append([f"発行日: {date.today().strftime('%Y年%m月%d日')}"])
+    ws.cell(row=2, column=1).font = font_sub
+    ws.append([]) # 空行
+
+    group_col = "出版社名" if group_type == "publisher" else "判型"
+    groups = df[group_col].unique() if group_col in df.columns else [""]
+    date_cols_set = {"納期", "折本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
+
+    current_row = 4
+
+    for g_val in groups:
+        g_name_display = g_val if g_val else "（未設定）"
+        prefix_label = "■ 出版社: " if group_type == "publisher" else "■ 判型: "
+        suffix_str = " 御中" if group_type == "publisher" else ""
+        
+        ws.cell(row=current_row, column=1, value=f"{prefix_label}{g_name_display}{suffix_str}").font = font_group
+        current_row += 1
+
+        # ヘッダー行出力
+        header_row_idx = current_row
+        ws.append(available_top_cols)
+        for col_i in range(1, max_col_idx + 1):
+            cell = ws.cell(row=header_row_idx, column=col_i)
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = align_center
+            cell.border = border_thin
+        current_row += 1
+
+        sub_df = df[df[group_col] == g_val] if g_val else df
+
+        for _, row in sub_df.iterrows():
+            val_102_check = str(row.get("納期2", ""))
+            val_103_check = str(row.get("急ぎ", ""))
+            is_urgent = (val_102_check == "確定" or val_103_check == "急")
+
+            # データ行
+            data_row_idx = current_row
+            row_vals = []
+            for c in available_top_cols:
+                lookup_c = "納期上/中/下" if c == "納期2" and "納期上/中/下" in row else c
+                raw_val = row.get(lookup_c, row.get(c, ""))
+                if c in date_cols_set:
+                    row_vals.append(format_date_pdf(raw_val))
+                else:
+                    row_vals.append(str(raw_val) if pd.notna(raw_val) else "")
+
+            ws.append(row_vals)
+            for col_i in range(1, max_col_idx + 1):
+                cell = ws.cell(row=data_row_idx, column=col_i)
+                cell.font = font_red_cell if (is_urgent and available_top_cols[col_i-1] in ["納期2", "急ぎ"]) else font_cell
+                if is_urgent:
+                    cell.fill = fill_urgent
+                cell.border = border_thin
+                cell.alignment = align_center
+            current_row += 1
+
+            # 備考行（2行目として結合）
+            memo_row_idx = current_row
+            memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
+            ws.append([f"備考: {memo_val}"] + [""] * (max_col_idx - 1))
+            ws.merge_cells(start_row=memo_row_idx, start_column=1, end_row=memo_row_idx, end_column=max_col_idx)
+            
+            for col_i in range(1, max_col_idx + 1):
+                cell = ws.cell(row=memo_row_idx, column=col_i)
+                cell.font = font_memo
+                cell.fill = fill_urgent if is_urgent else fill_memo
+                cell.border = border_thin
+                cell.alignment = align_left
+            current_row += 1
+
+        current_row += 1  キスト用の空行
+
+    # 列幅の自動調整（見やすさ考慮）
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row > 3 and cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = max(max_len + 3, 10)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
 
 # ==========================================
 # 5. データ取得関数
@@ -561,7 +663,6 @@ if api_records:
 
     df_v2 = pd.DataFrame(flat_data)
 
-    # 納期 ➔ 納期2 ➔ 判型 のソート順
     if current_group_type == "publisher":
         sort_keys = ["出版社名", "納期", "納期2", "判型"]
     else:
@@ -569,7 +670,6 @@ if api_records:
 
     df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True, True], na_position="last").reset_index(drop=True)
 
-    # データエディタ（各日付列を MM/DD 表示に設定）
     edited_v2_df = st.data_editor(
         df_v2,
         num_rows="fixed",
@@ -694,7 +794,8 @@ if api_records:
                     st.rerun()
 
     with col_d1:
-        excel_bytes = to_excel_bytes(edited_v2_df)
+        # PDFと同じフォーマットのきれいなExcel生成関数を呼び出し
+        excel_bytes = generate_order_excel_v2(edited_v2_df, group_type=current_group_type)
         st.download_button(
             label="📥 Excel でダウンロード",
             data=excel_bytes,
