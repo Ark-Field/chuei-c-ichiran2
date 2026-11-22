@@ -93,7 +93,7 @@ else:
     POCKET_API_KEY = "XZtsg3OrDFOh0VayOI83j84Oc3YIzm7oujbI0T08"
     POCKET_BASE_URL = "https://app070.at-pocket.com/arkf05_bb"
 
-APP_ID = 34  # @pocket対象アプリID
+APP_ID = 34  # @DB対象アプリID
 
 # ==========================================
 # 4. 判型ソート順定義 ＆ 便利関数
@@ -163,7 +163,6 @@ FORMAT_ORDER_LIST = [
     "白水4/6",
 ]
 
-# 先頭一致の順位マップを作成
 FORMAT_RANK_MAP = {}
 for idx, fmt_name in enumerate(FORMAT_ORDER_LIST):
     norm_name = fmt_name.strip().replace("\u3000", "")
@@ -250,11 +249,9 @@ def sort_order_dataframe(df, group_type="publisher"):
     work_df["_due_sort"] = pd.to_datetime(work_df["納期"], errors="coerce") if "納期" in work_df.columns else pd.NaT
 
     if group_type == "format":
-        # ① 判型の一覧表：判型順 → 納期順
         sort_cols = ["_fmt_rank", "判型", "_due_sort", "出版社名"]
         asc_flags = [True, True, True, True]
     else:
-        # ② 出版社一覧表：納期順 → 判型順
         sort_cols = ["_due_sort", "_fmt_rank", "判型", "出版社名"]
         asc_flags = [True, True, True, True]
 
@@ -280,7 +277,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
     group_label_str = "出版社一覧表（納期順・判型順）" if group_type == "publisher" else "判型一覧表（判型順・納期順）"
     elements = [
-        Paragraph(f"<b>受注一覧表②（{group_label_str}・行全体赤網掛け強調）</b>", title_style),
+        Paragraph(f"<b>受注一覧表②（{group_label_str}）</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 4),
@@ -289,7 +286,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     top_cols = [
         "受注番号", "見本日", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
-        "表紙日付", "カード日付", "カバー日付", "帯日付"
+        "表紙日付", "カード日", "カバ日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
@@ -301,7 +298,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         "32P": 20, "16P": 20, "8P": 20, "4P": 20, "2P": 20,
         "印刷所": 40,
         "刷本日": 26, "折": 20, "折本日": 26, "無線日": 26, "三方日": 26, "仕上日": 26, "納品日": 26,
-        "表紙日付": 26, "カード日付": 26, "カバー日付": 26, "帯日付": 26
+        "表紙日付": 26, "カード日": 26, "カバ日付": 26, "帯日付": 26
     }
     col_widths = [width_mapping.get(c, 26) for c in available_top_cols]
 
@@ -310,7 +307,7 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
     date_cols_set = {
         "見本日", "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
-        "表紙日付", "カード日付", "カバー日付", "帯日付"
+        "表紙日付", "カード日", "カバ日付", "帯日付"
     }
 
     for g_val in groups:
@@ -421,7 +418,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
     top_cols = [
         "受注番号", "見本日", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
-        "表紙日付", "カード日付", "カバー日付", "帯日付"
+        "表紙日付", "カード日", "カバ日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
     max_col_idx = len(available_top_cols)
@@ -436,7 +433,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
     groups = df[group_col].unique() if group_col in df.columns else [""]
     date_cols_set = {
         "見本日", "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
-        "表紙日付", "カード日付", "カバー日付", "帯日付"
+        "表紙日付", "カード日", "カバ日付", "帯日付"
     }
 
     current_row = 4
@@ -515,7 +512,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
         "32P": 6, "16P": 6, "8P": 6, "4P": 6, "2P": 6,
         "印刷所": 11,
         "刷本日": 7.5, "折": 6, "折本日": 7.5, "無線日": 7.5, "三方日": 7.5, "仕上日": 7.5, "納品日": 7.5,
-        "表紙日付": 7.5, "カード日付": 7.5, "カバー日付": 7.5, "帯日付": 7.5
+        "表紙日付": 7.5, "カード日": 7.5, "カバ日付": 7.5, "帯日付": 7.5
     }
     for col_i, col_name in enumerate(available_top_cols, start=1):
         col_letter = get_column_letter(col_i)
@@ -642,7 +639,7 @@ with st.sidebar:
 
 if search_clicked:
     st.query_params.clear()
-    with st.spinner("@ポケットからデータを取得中..."):
+    with st.spinner("DBからデータを取得中..."):
         st.session_state["api_records"] = fetch_pocket_records(
             start_date=t1_start, 
             end_date=t1_end, 
@@ -755,8 +752,8 @@ if api_records:
             "仕上日": parse_date_safe(rec_90.get("field-90_6")),
             "納品日": parse_date_safe(rec_90.get("field-90_10")),
             "表紙日付": parse_date_safe(rec_91.get("field-91_1")),
-            "カード日付": parse_date_safe(rec_91.get("field-91_9")),
-            "カバー日付": parse_date_safe(rec_91.get("field-91_5")),
+            "カード日": parse_date_safe(rec_91.get("field-91_9")),
+            "カバ日付": parse_date_safe(rec_91.get("field-91_5")),
             "帯日付": parse_date_safe(rec_91.get("field-91_13")),
             "備考": h_memo
         })
@@ -777,7 +774,7 @@ if api_records:
                 "更新": st.column_config.CheckboxColumn("更新", required=True, width="small"),
                 "詳細": st.column_config.LinkColumn(
                     "🔗 @DB詳細",
-                    help="@pocketの該当データ画面へジャンプします",
+                    help="@DBの該当データ画面へジャンプします",
                     display_text="📝 詳細",
                     width="small"
                 ),
@@ -824,26 +821,26 @@ if api_records:
                 "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD", width=65),
                 "納品日": st.column_config.DateColumn("納品日", format="MM/DD", width=65),
                 "表紙日付": st.column_config.DateColumn("表紙日付", format="MM/DD", width=65),
-                "カード日付": st.column_config.DateColumn("カード日付", format="MM/DD", width=65),
-                "カバー日付": st.column_config.DateColumn("カバー日付", format="MM/DD", width=65),
+                "カード日": st.column_config.DateColumn("カード日", format="MM/DD", width=65),
+                "カバ日付": st.column_config.DateColumn("カバ日付", format="MM/DD", width=65),
                 "帯日付": st.column_config.DateColumn("帯日付", format="MM/DD", width=65),
                 "備考": st.column_config.TextColumn("備考", width="medium")
             }
         )
 
-        # --- @pocket一括保存ボタンの処理 ---
+        # --- @DB一括保存ボタンの処理 ---
         st.markdown("---")
         col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
         
         with col_save:
-            if st.button("💾 変更した行を @pocket に保存", type="primary", key="save_pocket_btn"):
+            if st.button("💾 変更した行を @DB に保存", type="primary", key="save_pocket_btn"):
                 update_rows = edited_v2_df[edited_v2_df["更新"] == True]
                 if len(update_rows) == 0:
                     st.warning("⚠️ 「更新」にチェックが入っている行がありません。")
                 else:
                     success_count = 0
                     error_messages = []
-                    with st.spinner("@pocketへデータを保存中..."):
+                    with st.spinner("@DBへデータを保存中..."):
                         for _, row in update_rows.iterrows():
                             r_id = row.get("_recordId", "")
                             sub_90_id = row.get("_sub_90_id", "")
@@ -864,8 +861,8 @@ if api_records:
                             sub_91_item = {
                                 "record": {
                                     "field-91_1": date_to_str(row.get("表紙日付")),
-                                    "field-91_9": date_to_str(row.get("カード日付")),
-                                    "field-91_5": date_to_str(row.get("カバー日付")),
+                                    "field-91_9": date_to_str(row.get("カード日")),
+                                    "field-91_5": date_to_str(row.get("カバ日付")),
                                     "field-91_13": date_to_str(row.get("帯日付"))
                                 }
                             }
@@ -892,7 +889,7 @@ if api_records:
                                 error_messages.append(f"ID {r_id}: {msg}")
                     
                     if success_count > 0:
-                        st.success(f"✨ **{success_count} 件** のデータを @pocket へ正常に保存しました！")
+                        st.success(f"✨ **{success_count} 件** のデータを @DB へ正常に保存しました！")
                     if error_messages:
                         for err in error_messages:
                             st.error(f"❌ 保存エラー: {err}")
