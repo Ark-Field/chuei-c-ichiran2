@@ -96,7 +96,7 @@ else:
     POCKET_API_KEY = "XZtsg3OrDFOh0VayOI83j84Oc3YIzm7oujbI0T08"
     POCKET_BASE_URL = "https://app070.at-pocket.com/arkf05_bb"
 
-APP_ID = 34  # @pocket対象アプリID
+APP_ID = 34  # DB対象アプリID
 
 # ==========================================
 # 4. 判型ソート順定義 ＆ 便利関数
@@ -289,7 +289,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
     mode_title = "受注一覧表②" if table_mode == "v2" else "受注一覧表③断裁用"
     group_label_str = "出版社一覧表（納期順・判型順）" if group_type == "publisher" else "判型一覧表（判型順・納期順）"
     elements = [
-        Paragraph(f"<b>{mode_title}（{group_label_str}・行全体赤網掛け強調）</b>", title_style),
+        Paragraph(f"<b>{mode_title}（{group_label_str}</b>", title_style),
         Spacer(1, 4),
         Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
         Spacer(1, 4),
@@ -852,7 +852,7 @@ if api_records:
             "更新": st.column_config.CheckboxColumn("更新", required=True, width="small"),
             "詳細": st.column_config.LinkColumn(
                 "🔗 @DB詳細",
-                help="@pocketの該当データ画面へジャンプします",
+                help="DBの該当データ画面へジャンプします",
                 display_text="📝 詳細",
                 width="small"
             ),
@@ -928,19 +928,19 @@ if api_records:
             column_config=common_col_cfg
         )
 
-        # --- @pocket一括保存ボタンの処理 ---
+        # --- DB一括保存ボタンの処理 ---
         st.markdown("---")
         col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
 
         with col_save:
-            if st.button("💾 変更した行を @pocket に保存", type="primary", key=f"save_pocket_btn_{current_table_mode}"):
+            if st.button("💾 変更した行を DB に保存", type="primary", key=f"save_pocket_btn_{current_table_mode}"):
                 update_rows = edited_df[edited_df["更新"] == True]
                 if len(update_rows) == 0:
                     st.warning("⚠️ 「更新」にチェックが入っている行がありません。")
                 else:
                     success_count = 0
                     error_messages = []
-                    with st.spinner("@pocketへデータを保存中..."):
+                    with st.spinner("DBへデータを保存中..."):
                         for _, row in update_rows.iterrows():
                             r_id = row.get("_recordId", "")
                             sub_90_id = row.get("_sub_90_id", "")
@@ -998,7 +998,7 @@ if api_records:
                                 error_messages.append(f"ID {r_id}: {msg}")
 
                     if success_count > 0:
-                        st.success(f"✨ **{success_count} 件** のデータを @pocket へ正常に保存しました！")
+                        st.success(f"✨ **{success_count} 件** のデータを DB へ正常に保存しました！")
                     if error_messages:
                         for err in error_messages:
                             st.error(f"❌ 保存エラー: {err}")
