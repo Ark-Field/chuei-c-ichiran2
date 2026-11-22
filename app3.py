@@ -165,16 +165,17 @@ def update_pocket_record(record_id, update_data):
 # --- PDF生成関数 ---
 def generate_order_pdf_v2(df, group_type="publisher"):
     buffer = io.BytesIO()
+    # A3横 (1190.55pt x 841.89pt) 左右余白各10pt -> 有効幅 1170.55pt
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=14, leading=16, textColor=colors.HexColor("#1E3A8A"))
-    # ⑦ 判型名等を一覧表枠の左隅に頭合わせ（leftIndent=0）
-    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=9.5, leading=12, textColor=colors.HexColor("#1E3A8A"), spaceBefore=5, spaceAfter=2, leftIndent=0, alignment=0)
-    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.white, alignment=1)
+    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=10, leading=13, textColor=colors.HexColor("#1E3A8A"), spaceBefore=5, spaceAfter=2, leftIndent=0, alignment=0)
     
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6, leading=7.5, textColor=colors.HexColor("#0F172A"))
+    # ③ 文字サイズ1ptアップ (Header: 6.5 -> 7.5, Cell: 6.0 -> 7.0, Memo: 6.5 -> 7.5)
+    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5, leading=9, textColor=colors.white, alignment=1)
+    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.0, leading=8.5, textColor=colors.HexColor("#0F172A"))
     red_cell_style = ParagraphStyle("RedCell", parent=cell_style, textColor=colors.HexColor("#DC2626"))
-    memo_style = ParagraphStyle("MemoCell", parent=cell_style, fontSize=6.5, leading=8.5)
+    memo_style = ParagraphStyle("MemoCell", parent=cell_style, fontSize=7.5, leading=9.5)
 
     group_label_str = "顧客グループ別（出版社順）" if group_type == "publisher" else "判型グループ別（判型順）"
     elements = [
@@ -184,32 +185,32 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         Spacer(1, 4),
     ]
 
-    # ①配本日を納期の左、②折本日を無線日の左、③入品日→納品日
+    # ① 見本日 -> 配本日 -> 納期 の順に配置
     top_cols = [
-        "受注番号", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "受注番号", "見本日", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
-    # ④書名=15文字幅(約115pt), ⑤日付関連=3文字幅(約28pt), ⑧出版社名=4文字幅(約34pt)
+    # ② 書名=18文字幅(135pt)、文字サイズ+1ptでもA3横(1170pt)に収まるよう全体幅を最適化（合計約1,148pt）
     width_mapping = {
         "受注番号": 42,
-        "配本日": 28, "納期": 28, "納期2": 26, "急ぎ": 22,
-        "出版社名": 34, "判型": 28, "書名": 115,
+        "見本日": 27, "配本日": 27, "納期": 27, "納期2": 26, "急ぎ": 22,
+        "出版社名": 34, "判型": 28, "書名": 135,
         "刷数": 22, "回数": 22, "単価": 32, "製本数": 36, "製品預かり": 36, "総頁数": 30,
         "32P": 21, "16P": 21, "8P": 21, "4P": 21, "2P": 21,
         "印刷所": 40,
-        "刷本日": 28, "折": 22, "折本日": 28, "無線日": 28, "三方日": 28, "仕上日": 28, "納品日": 28,
-        "表紙日付": 28, "カード日付": 28, "カバー日付": 28, "帯日付": 28
+        "刷本日": 27, "折": 22, "折本日": 27, "無線日": 27, "三方日": 27, "仕上日": 27, "納品日": 27,
+        "表紙日付": 27, "カード日付": 27, "カバー日付": 27, "帯日付": 27
     }
-    col_widths = [width_mapping.get(c, 30) for c in available_top_cols]
+    col_widths = [width_mapping.get(c, 28) for c in available_top_cols]
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
 
     date_cols_set = {
-        "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
+        "見本日", "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     }
 
@@ -231,12 +232,12 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
             ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 2),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING", (0, 0), (-1, -1), 1.5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 1.5),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
         ]
 
-        row_heights = [16]  # ヘッダー行高さ
+        row_heights = [18]  # ヘッダー行高さ
 
         for i, (_, row) in enumerate(sub_df.iterrows()):
             val_102_check = str(row.get("納期2", ""))
@@ -262,13 +263,12 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             row_heights.append(None)  # データ行は自動高さ
             
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
-            # 改行がある場合は<br/>に変換して複数行表示
             memo_html = memo_val.replace("\n", "<br/>")
             memo_cell = Paragraph(f"<b>備考: {memo_html}</b>", memo_style)
             row_cells_2 = [memo_cell] + [Paragraph("", cell_style) for _ in range(len(available_top_cols) - 1)]
             table_data.append(row_cells_2)
-            # ⑥ 備考欄は4行分（leading 8.5pt × 4行 + 余白 ≒ 38pt）の高さを確保
-            row_heights.append(38)
+            # 備考欄は4行分の高さ（leading 9.5pt × 4行 + 余白 ≒ 42pt）を確保
+            row_heights.append(42)
 
             row_1_idx = 1 + (i * 2)
             memo_row_idx = row_1_idx + 1
@@ -282,7 +282,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             t_style.append(("SPAN", (0, memo_row_idx), (-1, memo_row_idx)))
             t_style.append(("VALIGN", (0, memo_row_idx), (-1, memo_row_idx), "TOP"))
 
-        # ⑦ 表全体を左寄せ（hAlign='LEFT'）にして判型名の左隅と頭を揃える
         t = Table(table_data, colWidths=col_widths, rowHeights=row_heights, repeatRows=1, hAlign="LEFT")
         t.setStyle(TableStyle(t_style))
         elements.append(t)
@@ -299,13 +298,14 @@ def generate_order_excel_v2(df, group_type="publisher"):
     ws.title = "受注一覧表"
     ws.views.sheetView[0].showGridLines = True
 
+    # ③ 文字サイズ1ptアップ (9 -> 10)
     font_title = Font(name="Meiryo", size=14, bold=True, color="1E3A8A")
     font_sub = Font(name="Meiryo", size=9, color="64748B")
     font_group = Font(name="Meiryo", size=11, bold=True, color="1E3A8A")
-    font_header = Font(name="Meiryo", size=9, bold=True, color="FFFFFF")
-    font_cell = Font(name="Meiryo", size=9, color="0F172A")
-    font_red_cell = Font(name="Meiryo", size=9, bold=True, color="DC2626")
-    font_memo = Font(name="Meiryo", size=9, bold=True, color="0F172A")
+    font_header = Font(name="Meiryo", size=10, bold=True, color="FFFFFF")
+    font_cell = Font(name="Meiryo", size=10, color="0F172A")
+    font_red_cell = Font(name="Meiryo", size=10, bold=True, color="DC2626")
+    font_memo = Font(name="Meiryo", size=10, bold=True, color="0F172A")
 
     fill_header = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
     fill_urgent = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
@@ -320,9 +320,9 @@ def generate_order_excel_v2(df, group_type="publisher"):
     align_left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
     align_memo_top = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
-    # ①配本日を納期の左、②折本日を無線日の左、③入品日→納品日
+    # ① 見本日 -> 配本日 -> 納期 の順に配置
     top_cols = [
-        "受注番号", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "受注番号", "見本日", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
@@ -338,7 +338,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
     date_cols_set = {
-        "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
+        "見本日", "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     }
 
@@ -349,7 +349,6 @@ def generate_order_excel_v2(df, group_type="publisher"):
         prefix_label = "■ 出版社: " if group_type == "publisher" else "■ 判型: "
         suffix_str = " 御中" if group_type == "publisher" else ""
         
-        # ⑦ A列（一覧表枠の左隅）に頭合わせで表記
         group_cell = ws.cell(row=current_row, column=1, value=f"{prefix_label}{g_name_display}{suffix_str}")
         group_cell.font = font_group
         group_cell.alignment = Alignment(horizontal="left", vertical="center")
@@ -397,8 +396,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
             ws.append([f"備考: {memo_val}"] + [""] * (max_col_idx - 1))
             ws.merge_cells(start_row=memo_row_idx, start_column=1, end_row=memo_row_idx, end_column=max_col_idx)
-            # ⑥ 備考欄は4行分の高さ（約60pt）に設定
-            ws.row_dimensions[memo_row_idx].height = 60
+            ws.row_dimensions[memo_row_idx].height = 64
             
             for col_i in range(1, max_col_idx + 1):
                 cell = ws.cell(row=memo_row_idx, column=col_i)
@@ -410,18 +408,18 @@ def generate_order_excel_v2(df, group_type="publisher"):
 
         current_row += 1
 
-    # 列幅設定（④書名=15文字幅、⑤日付関連=3文字幅、⑧出版社名=4文字幅）
+    # 列幅設定（② 書名=18文字幅(38)、日付関連=3文字幅(7.5)、出版社名=4文字幅(10)）
     excel_width_map = {
         "受注番号": 11,
-        "配本日": 7, "納期": 7, "納期2": 7, "急ぎ": 6,
-        "出版社名": 10,  # 全角4文字幅相当
+        "見本日": 7.5, "配本日": 7.5, "納期": 7.5, "納期2": 7.5, "急ぎ": 6,
+        "出版社名": 10,
         "判型": 8,
-        "書名": 32,      # 全角15文字幅相当
+        "書名": 38,
         "刷数": 6, "回数": 6, "単価": 8, "製本数": 9, "製品預かり": 10, "総頁数": 8,
         "32P": 6, "16P": 6, "8P": 6, "4P": 6, "2P": 6,
         "印刷所": 11,
-        "刷本日": 7, "折": 6, "折本日": 7, "無線日": 7, "三方日": 7, "仕上日": 7, "納品日": 7,
-        "表紙日付": 7, "カード日付": 7, "カバー日付": 7, "帯日付": 7
+        "刷本日": 7.5, "折": 6, "折本日": 7.5, "無線日": 7.5, "三方日": 7.5, "仕上日": 7.5, "納品日": 7.5,
+        "表紙日付": 7.5, "カード日付": 7.5, "カバー日付": 7.5, "帯日付": 7.5
     }
     for col_i, col_name in enumerate(available_top_cols, start=1):
         col_letter = get_column_letter(col_i)
@@ -578,8 +576,9 @@ if api_records:
 
         h_ord_no = clean_val(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
-        h_haibon = parse_date_safe(r.get("field-56"))  # ① 配本日 field-56
-        h_due = parse_date_safe(r.get("field-52"))
+        h_mihon = parse_date_safe(r.get("field-54"))   # ① 見本日 field-54
+        h_haibon = parse_date_safe(r.get("field-56"))  # 配本日 field-56
+        h_due = parse_date_safe(r.get("field-52"))     # 納期 field-52
         
         val_102 = clean_val(r.get("field-102", ""))
         if val_102 not in ["", "確定", "上旬", "中旬", "下旬"]:
@@ -633,6 +632,7 @@ if api_records:
             "出版社名": h_pub,
             "判型": h_format,
             "受注番号": h_ord_no,
+            "見本日": h_mihon,
             "配本日": h_haibon,
             "納期": h_due,
             "納期2": val_102,
@@ -696,6 +696,7 @@ if api_records:
                 "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width=70),
                 "判型": st.column_config.TextColumn("判型", disabled=True, width="small"),
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width="small"),
+                "見本日": st.column_config.DateColumn("見本日", format="MM/DD", width=65),
                 "配本日": st.column_config.DateColumn("配本日", format="MM/DD", width=65),
                 "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True, width=65),
                 "納期2": st.column_config.SelectboxColumn(
@@ -710,7 +711,7 @@ if api_records:
                     width="small",
                     help="急ぎ案件の場合は「急」を選択します (field-103)"
                 ),
-                "書名": st.column_config.TextColumn("書名", disabled=True, width=220),
+                "書名": st.column_config.TextColumn("書名", disabled=True, width=260),
                 "刷数": st.column_config.TextColumn("刷数", width="small"),
                 "回数": st.column_config.TextColumn("回数", width="small"),
                 "単価": st.column_config.TextColumn("単価", disabled=True, width="small"),
@@ -781,6 +782,7 @@ if api_records:
 
                             payload = {
                                 "field-2": clean_val(row.get("受注番号", "")),
+                                "field-54": date_to_str(row.get("見本日")),
                                 "field-56": date_to_str(row.get("配本日")),
                                 "field-102": clean_val(row.get("納期2", "")),
                                 "field-103": clean_val(row.get("急ぎ", "")),
