@@ -25,11 +25,9 @@ from openpyxl.utils import get_column_letter
 # ==========================================
 st.set_page_config(page_title="受注一覧表② 管理システム", layout="wide", initial_sidebar_state="expanded")
 
-# フルスクリーンモードの状態保持用セッション初期化
 if "fullscreen_mode" not in st.session_state:
     st.session_state["fullscreen_mode"] = False
 
-# フルスクリーンモードに応じた動的CSSの切り替え
 if st.session_state["fullscreen_mode"]:
     dynamic_layout_css = """
         <style>
@@ -170,11 +168,13 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=14, leading=16, textColor=colors.HexColor("#1E3A8A"))
-    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=9.5, leading=12, textColor=colors.HexColor("#1E3A8A"), spaceBefore=5, spaceAfter=2)
+    # ⑦ 判型名等を一覧表枠の左隅に頭合わせ（leftIndent=0）
+    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=9.5, leading=12, textColor=colors.HexColor("#1E3A8A"), spaceBefore=5, spaceAfter=2, leftIndent=0, alignment=0)
     header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6.5, leading=8, textColor=colors.white, alignment=1)
     
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=6, leading=7.5, textColor=colors.HexColor("#0F172A"))
     red_cell_style = ParagraphStyle("RedCell", parent=cell_style, textColor=colors.HexColor("#DC2626"))
+    memo_style = ParagraphStyle("MemoCell", parent=cell_style, fontSize=6.5, leading=8.5)
 
     group_label_str = "顧客グループ別（出版社順）" if group_type == "publisher" else "判型グループ別（判型順）"
     elements = [
@@ -184,32 +184,40 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         Spacer(1, 4),
     ]
 
+    # ①配本日を納期の左、②折本日を無線日の左、③入品日→納品日
     top_cols = [
-        "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
-        "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "無線日", "三方日", "仕上日", "入品日",
+        "受注番号", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
+    # ④書名=15文字幅(約115pt), ⑤日付関連=3文字幅(約28pt), ⑧出版社名=4文字幅(約34pt)
     width_mapping = {
-        "受注番号": 42, "納期": 38, "納期2": 26, "急ぎ": 22, 
-        "印刷所": 40, "刷本日": 36, "折": 22, "無線日": 36, "三方日": 36, "仕上日": 36, "入品日": 36,
-        "表紙日付": 36, "カード日付": 36, "カバー日付": 36, "帯日付": 36,
-        "出版社名": 60, "判型": 28, "書名": 70, "刷数": 22, "回数": 22,
-        "単価": 32, "製本数": 38, "製品預かり": 38, "総頁数": 32, 
-        "32P": 22, "16P": 22, "8P": 22, "4P": 22, "2P": 22
+        "受注番号": 42,
+        "配本日": 28, "納期": 28, "納期2": 26, "急ぎ": 22,
+        "出版社名": 34, "判型": 28, "書名": 115,
+        "刷数": 22, "回数": 22, "単価": 32, "製本数": 36, "製品預かり": 36, "総頁数": 30,
+        "32P": 21, "16P": 21, "8P": 21, "4P": 21, "2P": 21,
+        "印刷所": 40,
+        "刷本日": 28, "折": 22, "折本日": 28, "無線日": 28, "三方日": 28, "仕上日": 28, "納品日": 28,
+        "表紙日付": 28, "カード日付": 28, "カバー日付": 28, "帯日付": 28
     }
-    col_widths = [width_mapping.get(c, 36) for c in available_top_cols]
+    col_widths = [width_mapping.get(c, 30) for c in available_top_cols]
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
 
-    date_cols_set = {"納期", "刷本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
+    date_cols_set = {
+        "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
+        "表紙日付", "カード日付", "カバー日付", "帯日付"
+    }
 
     for g_val in groups:
         g_name_display = g_val if g_val else "（未設定）"
         prefix_label = "■ 出版社: " if group_type == "publisher" else "■ 判型: "
-        elements.append(Paragraph(f"<b>{prefix_label}{g_name_display} 御中</b>" if group_type == "publisher" else f"<b>{prefix_label}{g_name_display}</b>", group_header_style))
+        header_text = f"<b>{prefix_label}{g_name_display} 御中</b>" if group_type == "publisher" else f"<b>{prefix_label}{g_name_display}</b>"
+        elements.append(Paragraph(header_text, group_header_style))
         
         sub_df = df[df[group_col] == g_val] if g_val else df
 
@@ -223,8 +231,12 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
             ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
         ]
+
+        row_heights = [16]  # ヘッダー行高さ
 
         for i, (_, row) in enumerate(sub_df.iterrows()):
             val_102_check = str(row.get("納期2", ""))
@@ -247,11 +259,16 @@ def generate_order_pdf_v2(df, group_type="publisher"):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", cell_style))
             
             table_data.append(row_cells_1)
+            row_heights.append(None)  # データ行は自動高さ
             
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
-            memo_cell = Paragraph(f"<b>備考: {memo_val}</b>", cell_style)
+            # 改行がある場合は<br/>に変換して複数行表示
+            memo_html = memo_val.replace("\n", "<br/>")
+            memo_cell = Paragraph(f"<b>備考: {memo_html}</b>", memo_style)
             row_cells_2 = [memo_cell] + [Paragraph("", cell_style) for _ in range(len(available_top_cols) - 1)]
             table_data.append(row_cells_2)
+            # ⑥ 備考欄は4行分（leading 8.5pt × 4行 + 余白 ≒ 38pt）の高さを確保
+            row_heights.append(38)
 
             row_1_idx = 1 + (i * 2)
             memo_row_idx = row_1_idx + 1
@@ -263,11 +280,13 @@ def generate_order_pdf_v2(df, group_type="publisher"):
                 t_style.append(("BACKGROUND", (0, memo_row_idx), (-1, memo_row_idx), colors.HexColor("#F1F5F9")))
 
             t_style.append(("SPAN", (0, memo_row_idx), (-1, memo_row_idx)))
+            t_style.append(("VALIGN", (0, memo_row_idx), (-1, memo_row_idx), "TOP"))
 
-        t = Table(table_data, colWidths=col_widths, repeatRows=1)
+        # ⑦ 表全体を左寄せ（hAlign='LEFT'）にして判型名の左隅と頭を揃える
+        t = Table(table_data, colWidths=col_widths, rowHeights=row_heights, repeatRows=1, hAlign="LEFT")
         t.setStyle(TableStyle(t_style))
         elements.append(t)
-        elements.append(Spacer(1, 3))
+        elements.append(Spacer(1, 4))
 
     doc.build(elements)
     buffer.seek(0)
@@ -298,11 +317,13 @@ def generate_order_excel_v2(df, group_type="publisher"):
     )
 
     align_center = Alignment(horizontal="center", vertical="center")
-    align_left = Alignment(horizontal="left", vertical="center")
+    align_left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    align_memo_top = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
+    # ①配本日を納期の左、②折本日を無線日の左、③入品日→納品日
     top_cols = [
-        "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
-        "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "無線日", "三方日", "仕上日", "入品日",
+        "受注番号", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
+        "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
         "表紙日付", "カード日付", "カバー日付", "帯日付"
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
@@ -316,7 +337,10 @@ def generate_order_excel_v2(df, group_type="publisher"):
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
-    date_cols_set = {"納期", "刷本日", "無線日", "三方日", "仕上日", "入品日", "表紙日付", "カード日付", "カバー日付", "帯日付"}
+    date_cols_set = {
+        "配本日", "納期", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日",
+        "表紙日付", "カード日付", "カバー日付", "帯日付"
+    }
 
     current_row = 4
 
@@ -325,7 +349,10 @@ def generate_order_excel_v2(df, group_type="publisher"):
         prefix_label = "■ 出版社: " if group_type == "publisher" else "■ 判型: "
         suffix_str = " 御中" if group_type == "publisher" else ""
         
-        ws.cell(row=current_row, column=1, value=f"{prefix_label}{g_name_display}{suffix_str}").font = font_group
+        # ⑦ A列（一覧表枠の左隅）に頭合わせで表記
+        group_cell = ws.cell(row=current_row, column=1, value=f"{prefix_label}{g_name_display}{suffix_str}")
+        group_cell.font = font_group
+        group_cell.alignment = Alignment(horizontal="left", vertical="center")
         current_row += 1
 
         header_row_idx = current_row
@@ -357,36 +384,48 @@ def generate_order_excel_v2(df, group_type="publisher"):
 
             ws.append(row_vals)
             for col_i in range(1, max_col_idx + 1):
+                col_name = available_top_cols[col_i - 1]
                 cell = ws.cell(row=data_row_idx, column=col_i)
-                cell.font = font_red_cell if (is_urgent and available_top_cols[col_i-1] in ["納期2", "急ぎ"]) else font_cell
+                cell.font = font_red_cell if (is_urgent and col_name in ["納期2", "急ぎ"]) else font_cell
                 if is_urgent:
                     cell.fill = fill_urgent
                 cell.border = border_thin
-                cell.alignment = align_center
+                cell.alignment = align_left_wrap if col_name in ["書名", "出版社名"] else align_center
             current_row += 1
 
             memo_row_idx = current_row
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
             ws.append([f"備考: {memo_val}"] + [""] * (max_col_idx - 1))
             ws.merge_cells(start_row=memo_row_idx, start_column=1, end_row=memo_row_idx, end_column=max_col_idx)
+            # ⑥ 備考欄は4行分の高さ（約60pt）に設定
+            ws.row_dimensions[memo_row_idx].height = 60
             
             for col_i in range(1, max_col_idx + 1):
                 cell = ws.cell(row=memo_row_idx, column=col_i)
                 cell.font = font_memo
                 cell.fill = fill_urgent if is_urgent else fill_memo
                 cell.border = border_thin
-                cell.alignment = align_left
+                cell.alignment = align_memo_top
             current_row += 1
 
         current_row += 1
 
-    for col in ws.columns:
-        max_len = 0
-        col_letter = get_column_letter(col[0].column)
-        for cell in col:
-            if cell.row > 3 and cell.value:
-                max_len = max(max_len, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = max(max_len + 3, 10)
+    # 列幅設定（④書名=15文字幅、⑤日付関連=3文字幅、⑧出版社名=4文字幅）
+    excel_width_map = {
+        "受注番号": 11,
+        "配本日": 7, "納期": 7, "納期2": 7, "急ぎ": 6,
+        "出版社名": 10,  # 全角4文字幅相当
+        "判型": 8,
+        "書名": 32,      # 全角15文字幅相当
+        "刷数": 6, "回数": 6, "単価": 8, "製本数": 9, "製品預かり": 10, "総頁数": 8,
+        "32P": 6, "16P": 6, "8P": 6, "4P": 6, "2P": 6,
+        "印刷所": 11,
+        "刷本日": 7, "折": 6, "折本日": 7, "無線日": 7, "三方日": 7, "仕上日": 7, "納品日": 7,
+        "表紙日付": 7, "カード日付": 7, "カバー日付": 7, "帯日付": 7
+    }
+    for col_i, col_name in enumerate(available_top_cols, start=1):
+        col_letter = get_column_letter(col_i)
+        ws.column_dimensions[col_letter].width = excel_width_map.get(col_name, 8)
 
     output = io.BytesIO()
     wb.save(output)
@@ -492,10 +531,7 @@ with st.sidebar:
     t1_start = st.date_input("期間（開始）", value=init_start, key="v2_s")
     t1_end = st.date_input("期間（終了）", value=init_end, key="v2_e")
     
-    # 出版社名検索ボックス（デフォルト：岩波）
     publisher_input = st.text_input("📖 出版社名で絞り込み（部分一致）", value="岩波", key="v2_pub")
-    
-    # 「岩波」が含まれる出版社をすべて除外するチェックボックス（デフォルト OFF）
     exclude_iwanami = st.checkbox("「岩波」を含む出版社（岩波〇〇など）をすべて除外する", value=False, key="v2_exc_iwanami")
     
     st.markdown("---")
@@ -525,7 +561,6 @@ if search_clicked:
 # ==========================================
 st.header("📋 受注一覧表（各日付更新）")
 
-# メイン画面上部にフルスクリーン切り替えスイッチを配置
 fs_toggle = st.toggle("🖥️ 画面を広々表示（フルスクリーンモード）", value=st.session_state["fullscreen_mode"], key="fs_main_switch")
 if fs_toggle != st.session_state["fullscreen_mode"]:
     st.session_state["fullscreen_mode"] = fs_toggle
@@ -543,6 +578,7 @@ if api_records:
 
         h_ord_no = clean_val(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
+        h_haibon = parse_date_safe(r.get("field-56"))  # ① 配本日 field-56
         h_due = parse_date_safe(r.get("field-52"))
         
         val_102 = clean_val(r.get("field-102", ""))
@@ -552,10 +588,8 @@ if api_records:
         if val_103 not in ["", "急"]:
             val_103 = ""
 
-        # 出版社名の取得元 (field-105)
         h_pub = clean_val(r.get("field-105", ""))
         
-        # 「岩波」という文字が含まれるものをすべて除外する判定
         if exclude_iwanami and "岩波" in h_pub:
             continue
 
@@ -599,6 +633,7 @@ if api_records:
             "出版社名": h_pub,
             "判型": h_format,
             "受注番号": h_ord_no,
+            "配本日": h_haibon,
             "納期": h_due,
             "納期2": val_102,
             "急ぎ": val_103,
@@ -617,10 +652,11 @@ if api_records:
             "印刷所": h_printer,
             "刷本日": h_print_date,
             "折": h_folding,
+            "折本日": parse_date_safe(rec_90.get("field-90_3")),
             "無線日": parse_date_safe(rec_90.get("field-90_4")),
             "三方日": parse_date_safe(rec_90.get("field-90_5")),
             "仕上日": parse_date_safe(rec_90.get("field-90_6")),
-            "入品日": parse_date_safe(rec_90.get("field-90_10")),
+            "納品日": parse_date_safe(rec_90.get("field-90_10")),
             "表紙日付": parse_date_safe(rec_91.get("field-91_1")),
             "カード日付": parse_date_safe(rec_91.get("field-91_9")),
             "カバー日付": parse_date_safe(rec_91.get("field-91_5")),
@@ -657,10 +693,11 @@ if api_records:
                 "_recordId": None,
                 "_sub_90_id": None,
                 "_sub_91_id": None,
-                "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width="small"),
+                "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width=70),
                 "判型": st.column_config.TextColumn("判型", disabled=True, width="small"),
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width="small"),
-                "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True, width="small"),
+                "配本日": st.column_config.DateColumn("配本日", format="MM/DD", width=65),
+                "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True, width=65),
                 "納期2": st.column_config.SelectboxColumn(
                     "納期2",
                     options=["", "確定", "上旬", "中旬", "下旬"],
@@ -673,7 +710,7 @@ if api_records:
                     width="small",
                     help="急ぎ案件の場合は「急」を選択します (field-103)"
                 ),
-                "書名": st.column_config.TextColumn("書名", disabled=True, width="medium"),
+                "書名": st.column_config.TextColumn("書名", disabled=True, width=220),
                 "刷数": st.column_config.TextColumn("刷数", width="small"),
                 "回数": st.column_config.TextColumn("回数", width="small"),
                 "単価": st.column_config.TextColumn("単価", disabled=True, width="small"),
@@ -686,16 +723,17 @@ if api_records:
                 "4P": st.column_config.TextColumn("4P", disabled=True, width="small"),
                 "2P": st.column_config.TextColumn("2P", disabled=True, width="small"),
                 "印刷所": st.column_config.TextColumn("印刷所", disabled=True, width="small"),
-                "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD", width="small"),
+                "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD", width=65),
                 "折": st.column_config.TextColumn("折", disabled=True, width="small"),
-                "無線日": st.column_config.DateColumn("無線日", format="MM/DD", width="small"),
-                "三方日": st.column_config.DateColumn("三方日", format="MM/DD", width="small"),
-                "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD", width="small"),
-                "入品日": st.column_config.DateColumn("入品日", format="MM/DD", width="small"),
-                "表紙日付": st.column_config.DateColumn("表紙日付", format="MM/DD", width="small"),
-                "カード日付": st.column_config.DateColumn("カード日付", format="MM/DD", width="small"),
-                "カバー日付": st.column_config.DateColumn("カバー日付", format="MM/DD", width="small"),
-                "帯日付": st.column_config.DateColumn("帯日付", format="MM/DD", width="small"),
+                "折本日": st.column_config.DateColumn("折本日", format="MM/DD", width=65),
+                "無線日": st.column_config.DateColumn("無線日", format="MM/DD", width=65),
+                "三方日": st.column_config.DateColumn("三方日", format="MM/DD", width=65),
+                "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD", width=65),
+                "納品日": st.column_config.DateColumn("納品日", format="MM/DD", width=65),
+                "表紙日付": st.column_config.DateColumn("表紙日付", format="MM/DD", width=65),
+                "カード日付": st.column_config.DateColumn("カード日付", format="MM/DD", width=65),
+                "カバー日付": st.column_config.DateColumn("カバー日付", format="MM/DD", width=65),
+                "帯日付": st.column_config.DateColumn("帯日付", format="MM/DD", width=65),
                 "備考": st.column_config.TextColumn("備考", width="medium")
             }
         )
@@ -720,10 +758,11 @@ if api_records:
                             
                             sub_90_item = {
                                 "record": {
+                                    "field-90_3": date_to_str(row.get("折本日")),
                                     "field-90_4": date_to_str(row.get("無線日")),
                                     "field-90_5": date_to_str(row.get("三方日")),
                                     "field-90_6": date_to_str(row.get("仕上日")),
-                                    "field-90_10": date_to_str(row.get("入品日"))
+                                    "field-90_10": date_to_str(row.get("納品日"))
                                 }
                             }
                             if sub_90_id:
@@ -742,6 +781,7 @@ if api_records:
 
                             payload = {
                                 "field-2": clean_val(row.get("受注番号", "")),
+                                "field-56": date_to_str(row.get("配本日")),
                                 "field-102": clean_val(row.get("納期2", "")),
                                 "field-103": clean_val(row.get("急ぎ", "")),
                                 "field-28": clean_val(row.get("刷数", "")),
