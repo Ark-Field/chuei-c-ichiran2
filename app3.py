@@ -96,8 +96,88 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 4. 便利関数
+# 4. 判型ソート順定義 ＆ 便利関数
 # ==========================================
+FORMAT_ORDER_LIST = [
+    "新書変",
+    "新書",
+    "文庫",
+    "I・G",
+    "Jr新",
+    "少文",
+    "単行",
+    "判",
+    "A4",
+    "B4",
+    "A5",
+    "B5",
+    "A6",
+    "B6",
+    "A7",
+    "B7",
+    "B20",
+    "AB判",
+    "特Ｂ４",
+    "菊倍判",
+    "B6ワイド版",
+    "菊六変形",
+    "岩波4/6判",
+    "大月4/6判",
+    "勁草4/6判",
+    "フォア文庫",
+    "A3",
+    "A4変",
+    "Ａ４変横",
+    "A4横",
+    "B5変",
+    "B4変",
+    "６２×９２",
+    "Ｌ判",
+    "６２Ｘ９７",
+    "理想4/6判",
+    "A6変",
+    "新評4/6",
+    "Ｂ5横本",
+    "A5変",
+    "三秀4/6判",
+    "N新書",
+    "新書変形",
+    "ディグ4/6",
+    "菊変",
+    "岩波菊",
+    "新評4/6変",
+    "規格外",
+    "加瀬4/6判",
+    "B6変",
+    "白水U判",
+    "白水Q判",
+    "磯崎4/6変",
+    "青土4/6",
+    "加瀬4/6変",
+    "A5横",
+    "恒星社4/6",
+    "三秀A5変",
+    "三陽A5変",
+    "加瀬4/6変",
+    "NJｒ新書",
+    "白水4/6",
+]
+
+# 先頭一致の順位マップを作成
+FORMAT_RANK_MAP = {}
+for idx, fmt_name in enumerate(FORMAT_ORDER_LIST):
+    norm_name = fmt_name.strip().replace("\u3000", "")
+    if norm_name and norm_name not in FORMAT_RANK_MAP:
+        FORMAT_RANK_MAP[norm_name] = idx
+
+UNRANKED_FORMAT_RANK = len(FORMAT_ORDER_LIST) + 1
+
+def get_format_rank(fmt_val):
+    s = clean_val(fmt_val).replace("\u3000", "")
+    if not s:
+        return UNRANKED_FORMAT_RANK + 1
+    return FORMAT_RANK_MAP.get(s, UNRANKED_FORMAT_RANK)
+
 def clean_val(val):
     if val is None:
         return ""
@@ -162,22 +242,43 @@ def update_pocket_record(record_id, update_data):
     except Exception as e:
         return False, str(e)
 
+def sort_order_dataframe(df, group_type="publisher"):
+    if df is None or len(df) == 0:
+        return df
+    work_df = df.copy()
+    work_df["_fmt_rank"] = work_df["判型"].apply(get_format_rank) if "判型" in work_df.columns else UNRANKED_FORMAT_RANK
+    work_df["_due_sort"] = pd.to_datetime(work_df["納期"], errors="coerce") if "納期" in work_df.columns else pd.NaT
+
+    if group_type == "format":
+        # ① 判型の一覧表：判型順 → 納期順
+        sort_cols = ["_fmt_rank", "判型", "_due_sort", "出版社名"]
+        asc_flags = [True, True, True, True]
+    else:
+        # ② 出版社一覧表：納期順 → 判型順
+        sort_cols = ["_due_sort", "_fmt_rank", "判型", "出版社名"]
+        asc_flags = [True, True, True, True]
+
+    existing_cols = [c for c in sort_cols if c in work_df.columns]
+    existing_asc = [asc_flags[i] for i, c in enumerate(sort_cols) if c in work_df.columns]
+
+    work_df = work_df.sort_values(by=existing_cols, ascending=existing_asc, na_position="last").reset_index(drop=True)
+    return work_df.drop(columns=["_fmt_rank", "_due_sort"], errors="ignore")
+
 # --- PDF生成関数 ---
 def generate_order_pdf_v2(df, group_type="publisher"):
+    df = sort_order_dataframe(df, group_type=group_type)
     buffer = io.BytesIO()
-    # A3横 (1190.55pt x 841.89pt) 左右余白各10pt -> 有効幅 1170.55pt
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=10, rightMargin=10, topMargin=15, bottomMargin=15)
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=8, rightMargin=8, topMargin=14, bottomMargin=14)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=14, leading=16, textColor=colors.HexColor("#1E3A8A"))
     group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=10, leading=13, textColor=colors.HexColor("#1E3A8A"), spaceBefore=5, spaceAfter=2, leftIndent=0, alignment=0)
     
-    # ③ 文字サイズ1ptアップ (Header: 6.5 -> 7.5, Cell: 6.0 -> 7.0, Memo: 6.5 -> 7.5)
-    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5, leading=9, textColor=colors.white, alignment=1)
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.0, leading=8.5, textColor=colors.HexColor("#0F172A"))
+    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=8.0, leading=9.5, textColor=colors.white, alignment=1)
+    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5, leading=9.0, textColor=colors.HexColor("#0F172A"))
     red_cell_style = ParagraphStyle("RedCell", parent=cell_style, textColor=colors.HexColor("#DC2626"))
-    memo_style = ParagraphStyle("MemoCell", parent=cell_style, fontSize=7.5, leading=9.5)
+    memo_style = ParagraphStyle("MemoCell", parent=cell_style, fontSize=8.0, leading=10.0)
 
-    group_label_str = "顧客グループ別（出版社順）" if group_type == "publisher" else "判型グループ別（判型順）"
+    group_label_str = "出版社一覧表（納期順・判型順）" if group_type == "publisher" else "判型一覧表（判型順・納期順）"
     elements = [
         Paragraph(f"<b>受注一覧表②（{group_label_str}・行全体赤網掛け強調）</b>", title_style),
         Spacer(1, 4),
@@ -185,7 +286,6 @@ def generate_order_pdf_v2(df, group_type="publisher"):
         Spacer(1, 4),
     ]
 
-    # ① 見本日 -> 配本日 -> 納期 の順に配置
     top_cols = [
         "受注番号", "見本日", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
@@ -193,18 +293,17 @@ def generate_order_pdf_v2(df, group_type="publisher"):
     ]
     available_top_cols = [c for c in top_cols if c in df.columns]
 
-    # ② 書名=18文字幅(135pt)、文字サイズ+1ptでもA3横(1170pt)に収まるよう全体幅を最適化（合計約1,148pt）
     width_mapping = {
         "受注番号": 42,
-        "見本日": 27, "配本日": 27, "納期": 27, "納期2": 26, "急ぎ": 22,
-        "出版社名": 34, "判型": 28, "書名": 135,
+        "見本日": 26, "配本日": 26, "納期": 26, "納期2": 26, "急ぎ": 22,
+        "出版社名": 34, "判型": 28, "書名": 132,
         "刷数": 22, "回数": 22, "単価": 32, "製本数": 36, "製品預かり": 36, "総頁数": 30,
-        "32P": 21, "16P": 21, "8P": 21, "4P": 21, "2P": 21,
+        "32P": 20, "16P": 20, "8P": 20, "4P": 20, "2P": 20,
         "印刷所": 40,
-        "刷本日": 27, "折": 22, "折本日": 27, "無線日": 27, "三方日": 27, "仕上日": 27, "納品日": 27,
-        "表紙日付": 27, "カード日付": 27, "カバー日付": 27, "帯日付": 27
+        "刷本日": 26, "折": 20, "折本日": 26, "無線日": 26, "三方日": 26, "仕上日": 26, "納品日": 26,
+        "表紙日付": 26, "カード日付": 26, "カバー日付": 26, "帯日付": 26
     }
-    col_widths = [width_mapping.get(c, 28) for c in available_top_cols]
+    col_widths = [width_mapping.get(c, 26) for c in available_top_cols]
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
     groups = df[group_col].unique() if group_col in df.columns else [""]
@@ -232,12 +331,12 @@ def generate_order_pdf_v2(df, group_type="publisher"):
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
             ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 1.5),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 1.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 1.2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 1.2),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#64748B")),
         ]
 
-        row_heights = [18]  # ヘッダー行高さ
+        row_heights = [19]
 
         for i, (_, row) in enumerate(sub_df.iterrows()):
             val_102_check = str(row.get("納期2", ""))
@@ -260,15 +359,14 @@ def generate_order_pdf_v2(df, group_type="publisher"):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", cell_style))
             
             table_data.append(row_cells_1)
-            row_heights.append(None)  # データ行は自動高さ
+            row_heights.append(None)
             
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
             memo_html = memo_val.replace("\n", "<br/>")
             memo_cell = Paragraph(f"<b>備考: {memo_html}</b>", memo_style)
             row_cells_2 = [memo_cell] + [Paragraph("", cell_style) for _ in range(len(available_top_cols) - 1)]
             table_data.append(row_cells_2)
-            # 備考欄は4行分の高さ（leading 9.5pt × 4行 + 余白 ≒ 42pt）を確保
-            row_heights.append(42)
+            row_heights.append(46)
 
             row_1_idx = 1 + (i * 2)
             memo_row_idx = row_1_idx + 1
@@ -293,12 +391,12 @@ def generate_order_pdf_v2(df, group_type="publisher"):
 
 # --- Excel生成関数 ---
 def generate_order_excel_v2(df, group_type="publisher"):
+    df = sort_order_dataframe(df, group_type=group_type)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "受注一覧表"
     ws.views.sheetView[0].showGridLines = True
 
-    # ③ 文字サイズ1ptアップ (9 -> 10)
     font_title = Font(name="Meiryo", size=14, bold=True, color="1E3A8A")
     font_sub = Font(name="Meiryo", size=9, color="64748B")
     font_group = Font(name="Meiryo", size=11, bold=True, color="1E3A8A")
@@ -320,7 +418,6 @@ def generate_order_excel_v2(df, group_type="publisher"):
     align_left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
     align_memo_top = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
-    # ① 見本日 -> 配本日 -> 納期 の順に配置
     top_cols = [
         "受注番号", "見本日", "配本日", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "刷数", "回数", "単価", "製本数", "製品預かり", "総頁数",
         "32P", "16P", "8P", "4P", "2P", "印刷所", "刷本日", "折", "折本日", "無線日", "三方日", "仕上日", "納品日",
@@ -329,7 +426,7 @@ def generate_order_excel_v2(df, group_type="publisher"):
     available_top_cols = [c for c in top_cols if c in df.columns]
     max_col_idx = len(available_top_cols)
 
-    ws.append([f"受注一覧表②（{'顧客グループ別（出版社順）' if group_type == 'publisher' else '判型グループ別（判型順）'}）"])
+    ws.append([f"受注一覧表②（{'出版社一覧表（納期順・判型順）' if group_type == 'publisher' else '判型一覧表（判型順・納期順）'}）"])
     ws.cell(row=1, column=1).font = font_title
     ws.append([f"発行日: {date.today().strftime('%Y年%m月%d日')}"])
     ws.cell(row=2, column=1).font = font_sub
@@ -408,7 +505,6 @@ def generate_order_excel_v2(df, group_type="publisher"):
 
         current_row += 1
 
-    # 列幅設定（② 書名=18文字幅(38)、日付関連=3文字幅(7.5)、出版社名=4文字幅(10)）
     excel_width_map = {
         "受注番号": 11,
         "見本日": 7.5, "配本日": 7.5, "納期": 7.5, "納期2": 7.5, "急ぎ": 6,
@@ -535,11 +631,12 @@ with st.sidebar:
     st.markdown("---")
     group_axis_choice = st.radio(
         "🗂️ グループ軸（ソート順）",
-        options=["① 顧客別（出版社順）", "② 判型別（判型順）"],
+        options=["① 判型別一覧表（判型順・納期順）", "② 出版社一覧表（納期順・判型順）"],
+        index=1,
         horizontal=False,
         key="group_axis_radio"
     )
-    current_group_type = "publisher" if "①" in group_axis_choice else "format"
+    current_group_type = "format" if "①" in group_axis_choice else "publisher"
 
     search_clicked = st.button("🔄 検索実行", type="primary", key="v2_btn", use_container_width=True)
 
@@ -576,9 +673,9 @@ if api_records:
 
         h_ord_no = clean_val(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
-        h_mihon = parse_date_safe(r.get("field-54"))   # ① 見本日 field-54
-        h_haibon = parse_date_safe(r.get("field-56"))  # 配本日 field-56
-        h_due = parse_date_safe(r.get("field-52"))     # 納期 field-52
+        h_mihon = parse_date_safe(r.get("field-54"))
+        h_haibon = parse_date_safe(r.get("field-56"))
+        h_due = parse_date_safe(r.get("field-52"))
         
         val_102 = clean_val(r.get("field-102", ""))
         if val_102 not in ["", "確定", "上旬", "中旬", "下旬"]:
@@ -669,12 +766,7 @@ if api_records:
     if len(df_v2) > 0:
         st.success(f"✨ 対象レコード **{len(df_v2)} 件** を取得しました。")
 
-        if current_group_type == "publisher":
-            sort_keys = ["出版社名", "納期", "納期2", "判型"]
-        else:
-            sort_keys = ["判型", "納期", "納期2", "出版社名"]
-
-        df_v2 = df_v2.sort_values(by=sort_keys, ascending=[True, True, True, True], na_position="last").reset_index(drop=True)
+        df_v2 = sort_order_dataframe(df_v2, group_type=current_group_type)
 
         edited_v2_df = st.data_editor(
             df_v2,
