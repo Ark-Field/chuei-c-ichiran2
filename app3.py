@@ -146,7 +146,22 @@ def format_umu_mark(val):
     s = clean_val(val)
     if s:
         return f"{s}/〇"
-    return "✖"
+    return "✖無し"
+
+def has_any_cover_item(row):
+    item_cols = ["表紙有無", "カード有無", "カバー有無", "帯有無"]
+    for col in item_cols:
+        if col in row and clean_val(row.get(col, "")) not in ["", "✖無し"]:
+            return True
+    return False
+
+def filter_df_for_export(df, table_mode="v2"):
+    if df is None or len(df) == 0:
+        return df
+    if table_mode == "v3":
+        mask = df.apply(has_any_cover_item, axis=1)
+        return df[mask].copy().reset_index(drop=True)
+    return df.copy()
 
 def parse_date_safe(val):
     s = clean_val(val)
@@ -240,14 +255,14 @@ CUTTING_COLS_SPEC = [
     ("4P", "4P", 20, 9),
     ("2P", "2P", 20, 10),
     ("印刷所", "印刷所", 38, 9),
-    ("表紙有無_結合", "表紙有無 結合", 44, 11),
-    ("表紙有無_手書", "表紙有無 結合", 44, 11),
-    ("カード有無_結合", "カード有無 結合", 48, 12),
-    ("カード有無_手書", "カード有無 結合", 44, 11),
-    ("カバー有無_結合", "カバー有無 結合", 50, 13),
-    ("カバー有無_手書", "カバー有無 結合", 44, 11),
-    ("帯有無_結合", "帯有無 結合", 46, 11),
-    ("帯有無_手書", "帯有無 結合", 44, 11),
+    ("表紙有無", "表紙有無", 44, 10),
+    ("表紙確認", "表紙確認", 44, 10),
+    ("カード有無", "カード有無", 48, 10),
+    ("カード確認", "カード確認", 44, 10),
+    ("カバー有無", "カバー有無", 50, 10),
+    ("カバー確認", "カバー確認", 44, 10),
+    ("帯有無", "帯有無", 46, 10),
+    ("帯確認", "帯確認", 44, 10),
 ]
 
 V3_DISPLAY_LABEL_MAP = {k: lbl for k, lbl, _, _ in CUTTING_COLS_SPEC}
@@ -258,6 +273,7 @@ V3_EXCEL_WIDTH_MAP = {k: w for k, _, _, w in CUTTING_COLS_SPEC}
 # PDF生成関数（一覧表② / ③断裁用・1行目高さ1.2cm）
 # ==========================================
 def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
+    df = filter_df_for_export(df, table_mode=table_mode)
     df = sort_order_dataframe(df, group_type=group_type)
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=8, rightMargin=8, topMargin=14, bottomMargin=14)
@@ -302,14 +318,16 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
             "表紙日付", "カード日", "カバ日付", "帯日付"
         }
         label_map = {c: c for c in available_top_cols}
+        confirm_cols_set = set()
     else:
         available_top_cols = [k for k, _, _, _ in CUTTING_COLS_SPEC if k in df.columns]
         col_widths = [V3_PDF_WIDTH_MAP.get(c, 30) for c in available_top_cols]
         date_cols_set = {"納期"}
         label_map = V3_DISPLAY_LABEL_MAP
+        confirm_cols_set = {"表紙確認", "カード確認", "カバー確認", "帯確認"}
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
-    groups = df[group_col].unique() if group_col in df.columns else [""]
+    groups = df[group_col].unique() if len(df) > 0 and group_col in df.columns else []
 
     for g_val in groups:
         g_name_display = g_val if g_val else "（未設定）"
@@ -343,7 +361,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
 
             row_cells_1 = []
             for c in available_top_cols:
-                if c.endswith("_手書"):
+                if c in confirm_cols_set:
                     val_str = ""
                 elif c in date_cols_set:
                     val_str = format_date_pdf(row.get(c, ""))
@@ -391,6 +409,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
 # Excel生成関数（一覧表② / ③断裁用・1行目高さ1.2cm）
 # ==========================================
 def generate_order_excel(df, table_mode="v2", group_type="publisher"):
+    df = filter_df_for_export(df, table_mode=table_mode)
     df = sort_order_dataframe(df, group_type=group_type)
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -442,11 +461,13 @@ def generate_order_excel(df, table_mode="v2", group_type="publisher"):
             "表紙日付", "カード日", "カバ日付", "帯日付"
         }
         label_map = {c: c for c in available_top_cols}
+        confirm_cols_set = set()
     else:
         available_top_cols = [k for k, _, _, _ in CUTTING_COLS_SPEC if k in df.columns]
         excel_width_map = V3_EXCEL_WIDTH_MAP
         date_cols_set = {"納期"}
         label_map = V3_DISPLAY_LABEL_MAP
+        confirm_cols_set = {"表紙確認", "カード確認", "カバー確認", "帯確認"}
 
     max_col_idx = len(available_top_cols)
     mode_title = "受注一覧表②" if table_mode == "v2" else "受注一覧表③断裁用"
@@ -459,7 +480,7 @@ def generate_order_excel(df, table_mode="v2", group_type="publisher"):
     ws.append([])
 
     group_col = "出版社名" if group_type == "publisher" else "判型"
-    groups = df[group_col].unique() if group_col in df.columns else [""]
+    groups = df[group_col].unique() if len(df) > 0 and group_col in df.columns else []
 
     current_row = 4
 
@@ -493,7 +514,7 @@ def generate_order_excel(df, table_mode="v2", group_type="publisher"):
             data_row_idx = current_row
             row_vals = []
             for c in available_top_cols:
-                if c.endswith("_手書"):
+                if c in confirm_cols_set:
                     row_vals.append("")
                 elif c in date_cols_set:
                     row_vals.append(format_date_pdf(row.get(c, "")))
@@ -736,6 +757,11 @@ if api_records:
         rec_91 = item_91.get("record", item_91) if isinstance(item_91, dict) else {}
         sub_91_id = str(item_91.get("Id") or item_91.get("recordId") or rec_91.get("Id") or "").strip()
 
+        raw_hyoushi = clean_val(rec_91.get("field-91_2"))
+        raw_card = clean_val(rec_91.get("field-91_10"))
+        raw_cover = clean_val(rec_91.get("field-91_6"))
+        raw_obi = clean_val(rec_91.get("field-91_14"))
+
         base_row = {
             "更新": False,
             "詳細": detail_url,
@@ -802,14 +828,14 @@ if api_records:
                 "4P": h_p4,
                 "2P": h_p2,
                 "印刷所": h_printer,
-                "表紙有無_結合": format_umu_mark(rec_91.get("field-91_2")),
-                "表紙有無_手書": "",
-                "カード有無_結合": format_umu_mark(rec_91.get("field-91_10")),
-                "カード有無_手書": "",
-                "カバー有無_結合": format_umu_mark(rec_91.get("field-91_6")),
-                "カバー有無_手書": "",
-                "帯有無_結合": format_umu_mark(rec_91.get("field-91_14")),
-                "帯有無_手書": "",
+                "表紙有無": format_umu_mark(raw_hyoushi),
+                "表紙確認": "",
+                "カード有無": format_umu_mark(raw_card),
+                "カード確認": "",
+                "カバー有無": format_umu_mark(raw_cover),
+                "カバー確認": "",
+                "帯有無": format_umu_mark(raw_obi),
+                "帯確認": "",
                 "備考": h_memo
             })
 
@@ -884,14 +910,14 @@ if api_records:
             })
         else:
             common_col_cfg.update({
-                "表紙有無_結合": st.column_config.TextColumn("表紙有無 結合", disabled=True, width=80),
-                "表紙有無_手書": st.column_config.TextColumn("表紙有無 結合", disabled=True, width=80),
-                "カード有無_結合": st.column_config.TextColumn("カード有無 結合", disabled=True, width=85),
-                "カード有無_手書": st.column_config.TextColumn("カード有無 結合", disabled=True, width=85),
-                "カバー有無_結合": st.column_config.TextColumn("カバー有無 結合", disabled=True, width=90),
-                "カバー有無_手書": st.column_config.TextColumn("カバー有無 結合", disabled=True, width=90),
-                "帯有無_結合": st.column_config.TextColumn("帯有無 結合", disabled=True, width=85),
-                "帯有無_手書": st.column_config.TextColumn("帯有無 結合", disabled=True, width=85),
+                "表紙有無": st.column_config.TextColumn("表紙有無", disabled=True, width=80),
+                "表紙確認": st.column_config.TextColumn("表紙確認", disabled=True, width=80),
+                "カード有無": st.column_config.TextColumn("カード有無", disabled=True, width=85),
+                "カード確認": st.column_config.TextColumn("カード確認", disabled=True, width=85),
+                "カバー有無": st.column_config.TextColumn("カバー有無", disabled=True, width=90),
+                "カバー確認": st.column_config.TextColumn("カバー確認", disabled=True, width=90),
+                "帯有無": st.column_config.TextColumn("帯有無", disabled=True, width=80),
+                "帯確認": st.column_config.TextColumn("帯確認", disabled=True, width=80),
             })
 
         edited_df = st.data_editor(
