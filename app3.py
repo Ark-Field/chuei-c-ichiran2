@@ -8,6 +8,7 @@ import streamlit as st
 # ReportLab関連のインポート（PDF出力用）
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A3, landscape
+from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -17,6 +18,10 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+CM_TO_PT = 1.0 / 0.0352778
+ROW1_HEIGHT_CM = 1.2
+ROW1_HEIGHT_PT = ROW1_HEIGHT_CM * CM_TO_PT
 
 # ==========================================
 # 1. ページ基本設定 ＆ フルスクリーン切り替えCSS
@@ -137,6 +142,12 @@ def clean_val(val):
         return ""
     return s
 
+def format_umu_mark(val):
+    s = clean_val(val)
+    if s:
+        return f"{s}/〇"
+    return "✖"
+
 def parse_date_safe(val):
     s = clean_val(val)
     if not s:
@@ -229,13 +240,13 @@ CUTTING_COLS_SPEC = [
     ("4P", "4P", 20, 9),
     ("2P", "2P", 20, 10),
     ("印刷所", "印刷所", 38, 9),
-    ("表紙有無_結合", "表紙有無 結合", 42, 11),
+    ("表紙有無_結合", "表紙有無 結合", 44, 11),
     ("表紙有無_手書", "表紙有無 結合", 44, 11),
     ("カード有無_結合", "カード有無 結合", 48, 12),
     ("カード有無_手書", "カード有無 結合", 44, 11),
     ("カバー有無_結合", "カバー有無 結合", 50, 13),
     ("カバー有無_手書", "カバー有無 結合", 44, 11),
-    ("帯有無_結合", "帯有無 結合", 44, 11),
+    ("帯有無_結合", "帯有無 結合", 46, 11),
     ("帯有無_手書", "帯有無 結合", 44, 11),
 ]
 
@@ -244,7 +255,7 @@ V3_PDF_WIDTH_MAP = {k: w for k, _, w, _ in CUTTING_COLS_SPEC}
 V3_EXCEL_WIDTH_MAP = {k: w for k, _, _, w in CUTTING_COLS_SPEC}
 
 # ==========================================
-# PDF生成関数（一覧表② / ③断裁用）
+# PDF生成関数（一覧表② / ③断裁用・1行目高さ1.2cm）
 # ==========================================
 def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
     df = sort_order_dataframe(df, group_type=group_type)
@@ -346,7 +357,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", cell_style))
 
             table_data.append(row_cells_1)
-            row_heights.append(None)
+            row_heights.append(ROW1_HEIGHT_CM * cm)
 
             memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
             memo_html = memo_val.replace("\n", "<br/>")
@@ -377,7 +388,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
     return buffer
 
 # ==========================================
-# Excel生成関数（一覧表② / ③断裁用）
+# Excel生成関数（一覧表② / ③断裁用・1行目高さ1.2cm）
 # ==========================================
 def generate_order_excel(df, table_mode="v2", group_type="publisher"):
     df = sort_order_dataframe(df, group_type=group_type)
@@ -491,6 +502,7 @@ def generate_order_excel(df, table_mode="v2", group_type="publisher"):
                     row_vals.append(str(raw_val) if pd.notna(raw_val) else "")
 
             ws.append(row_vals)
+            ws.row_dimensions[data_row_idx].height = ROW1_HEIGHT_PT
             for col_i in range(1, max_col_idx + 1):
                 col_key = available_top_cols[col_i - 1]
                 cell = ws.cell(row=data_row_idx, column=col_i)
@@ -662,7 +674,7 @@ mode_choice = st.radio(
 )
 current_table_mode = "v2" if "②" in mode_choice else "v3"
 
-st.header(f"📋 {mode_choice}（{'各日付更新' if current_table_mode == 'v2' else '断裁・有無確認'}）")
+st.header(f"📋 {mode_choice}（{'各日付更新' if current_table_mode == 'v2' else '断裁・有無確認（閲覧用）'}）")
 
 fs_toggle = st.toggle("🖥️ 画面を広々表示（フルスクリーンモード）", value=st.session_state["fullscreen_mode"], key="fs_main_switch_unified")
 if fs_toggle != st.session_state["fullscreen_mode"]:
@@ -790,13 +802,13 @@ if api_records:
                 "4P": h_p4,
                 "2P": h_p2,
                 "印刷所": h_printer,
-                "表紙有無_結合": clean_val(rec_91.get("field-91_4")),
+                "表紙有無_結合": format_umu_mark(rec_91.get("field-91_2")),
                 "表紙有無_手書": "",
-                "カード有無_結合": clean_val(rec_91.get("field-91_11")),
+                "カード有無_結合": format_umu_mark(rec_91.get("field-91_10")),
                 "カード有無_手書": "",
-                "カバー有無_結合": clean_val(rec_91.get("field-91_7")),
+                "カバー有無_結合": format_umu_mark(rec_91.get("field-91_6")),
                 "カバー有無_手書": "",
-                "帯有無_結合": clean_val(rec_91.get("field-91_15")),
+                "帯有無_結合": format_umu_mark(rec_91.get("field-91_14")),
                 "帯有無_手書": "",
                 "備考": h_memo
             })
@@ -872,14 +884,14 @@ if api_records:
             })
         else:
             common_col_cfg.update({
-                "表紙有無_結合": st.column_config.TextColumn("表紙有無 結合", disabled=True, width=75),
-                "表紙有無_手書": st.column_config.TextColumn("表紙有無 結合（手書）", disabled=True, width=80),
+                "表紙有無_結合": st.column_config.TextColumn("表紙有無 結合", disabled=True, width=80),
+                "表紙有無_手書": st.column_config.TextColumn("表紙有無 結合", disabled=True, width=80),
                 "カード有無_結合": st.column_config.TextColumn("カード有無 結合", disabled=True, width=85),
-                "カード有無_手書": st.column_config.TextColumn("カード有無 結合（手書）", disabled=True, width=90),
-                "カバー有無_結合": st.column_config.TextColumn("カバー有無 結合", disabled=True, width=95),
-                "カバー有無_手書": st.column_config.TextColumn("カバー有無 結合（手書）", disabled=True, width=100),
-                "帯有無_結合": st.column_config.TextColumn("帯有無 結合", disabled=True, width=105),
-                "帯有無_手書": st.column_config.TextColumn("帯有無 結合（手書）", disabled=True, width=110),
+                "カード有無_手書": st.column_config.TextColumn("カード有無 結合", disabled=True, width=85),
+                "カバー有無_結合": st.column_config.TextColumn("カバー有無 結合", disabled=True, width=90),
+                "カバー有無_手書": st.column_config.TextColumn("カバー有無 結合", disabled=True, width=90),
+                "帯有無_結合": st.column_config.TextColumn("帯有無 結合", disabled=True, width=85),
+                "帯有無_手書": st.column_config.TextColumn("帯有無 結合", disabled=True, width=85),
             })
 
         edited_df = st.data_editor(
@@ -945,24 +957,12 @@ if api_records:
                                     "field-91": [sub_91_item]
                                 }
                             else:
-                                sub_91_item = {
-                                    "record": {
-                                        "field-91_4": clean_val(row.get("表紙有無_結合", "")),
-                                        "field-91_11": clean_val(row.get("カード有無_結合", "")),
-                                        "field-91_7": clean_val(row.get("カバー有無_結合", "")),
-                                        "field-91_15": clean_val(row.get("帯有無_結合", ""))
-                                    }
-                                }
-                                if sub_91_id:
-                                    sub_91_item["Id"] = sub_91_id
-
                                 payload = {
                                     "field-2": clean_val(row.get("受注番号", "")),
                                     "field-102": clean_val(row.get("納期2", "")),
                                     "field-103": clean_val(row.get("急ぎ", "")),
                                     "field-28": clean_val(row.get("刷数", "")),
-                                    "field-45": clean_val(row.get("備考", "")),
-                                    "field-91": [sub_91_item]
+                                    "field-45": clean_val(row.get("備考", ""))
                                 }
 
                             ok, msg = update_pocket_record(r_id, payload)
