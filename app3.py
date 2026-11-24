@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import A3, landscape
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
@@ -24,51 +25,79 @@ ROW1_HEIGHT_CM = 1.2
 ROW1_HEIGHT_PT = ROW1_HEIGHT_CM * CM_TO_PT
 
 # ==========================================
-# 1. ページ基本設定 ＆ フルスクリーン切り替えCSS
+# 1. ページ基本設定 ＆ フルスクリーン・太字切り替えCSS
 # ==========================================
 st.set_page_config(page_title="受注一覧表（②・③断裁用）管理システム", layout="wide", initial_sidebar_state="expanded")
 
 if "fullscreen_mode" not in st.session_state:
     st.session_state["fullscreen_mode"] = False
 
+bold_table_css = """
+    [data-testid="stDataFrame"],
+    [data-testid="stDataFrame"] div,
+    [data-testid="stDataFrame"] span,
+    [data-testid="stDataFrame"] th,
+    [data-testid="stDataFrame"] td,
+    [data-testid="stDataFrame"] input {
+        font-weight: 700 !important;
+    }
+"""
+
 if st.session_state["fullscreen_mode"]:
-    dynamic_layout_css = """
+    dynamic_layout_css = f"""
         <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        [data-testid="stHeader"] {display: none !important;}
-        [data-testid="stSidebar"] {display: none !important;}
-        [data-testid="stMainBlockContainer"] {
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        header {{visibility: hidden;}}
+        [data-testid="stHeader"] {{display: none !important;}}
+        [data-testid="stSidebar"] {{display: none !important;}}
+        [data-testid="stMainBlockContainer"] {{
             max-width: 100% !important;
             padding-top: 1rem !important;
             padding-right: 2rem !important;
             padding-left: 2rem !important;
-        }
-        .stApp { background-color: #F8FAFC; }
+        }}
+        .stApp {{ background-color: #F8FAFC; }}
+        {bold_table_css}
         </style>
     """
 else:
-    dynamic_layout_css = """
+    dynamic_layout_css = f"""
         <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        .stApp { background-color: #F8FAFC; }
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        header {{visibility: hidden;}}
+        .stApp {{ background-color: #F8FAFC; }}
+        {bold_table_css}
         </style>
     """
 
 st.markdown(dynamic_layout_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 日本語フォント登録処理（ReportLab用）
+# 2. 日本語フォント登録処理（ReportLab用・Bold対応＋代替案）
 # ==========================================
 def setup_japanese_font():
-    local_font_path = "NotoSansJP-Regular.ttf"
-    if os.path.exists(local_font_path):
+    """
+    戻り値: (regular_font_name, bold_font_name)
+    - NotoSansJP-Bold.ttf がある場合は正規のBoldフォントを登録して紐づける
+    - ない場合は Regular フォントを代替の太字フォント名として登録し、スタイル側でも指定する
+    """
+    reg_path = "NotoSansJP-Regular.ttf"
+    bold_path = "NotoSansJP-Bold.ttf"
+
+    if os.path.exists(reg_path):
         try:
-            pdfmetrics.registerFont(TTFont("JPFont", local_font_path))
-            return "JPFont"
+            pdfmetrics.registerFont(TTFont("JPFont", reg_path))
+            if os.path.exists(bold_path):
+                pdfmetrics.registerFont(TTFont("JPFont-Bold", bold_path))
+                registerFontFamily("JPFont", normal="JPFont", bold="JPFont-Bold")
+                return "JPFont", "JPFont-Bold"
+            else:
+                # 代替案: Boldフォント未配置時はRegularをJPFont-Bold別名で登録
+                pdfmetrics.registerFont(TTFont("JPFont-Bold", reg_path))
+                registerFontFamily("JPFont", normal="JPFont", bold="JPFont-Bold")
+                return "JPFont", "JPFont-Bold"
         except Exception as e:
             print(f"同梱フォント登録エラー: {e}")
 
@@ -78,13 +107,15 @@ def setup_japanese_font():
     if os.path.exists(win_font):
         try:
             pdfmetrics.registerFont(TTFont("JPFont", win_font, subfontIndex=0))
-            return "JPFont"
+            pdfmetrics.registerFont(TTFont("JPFont-Bold", win_font, subfontIndex=0))
+            registerFontFamily("JPFont", normal="JPFont", bold="JPFont-Bold")
+            return "JPFont", "JPFont-Bold"
         except Exception as e:
             print(f"Windowsフォント登録エラー: {e}")
 
-    return "Helvetica"
+    return "Helvetica", "Helvetica-Bold"
 
-FONT_NAME = setup_japanese_font()
+FONT_NAME, BOLD_FONT_NAME = setup_japanese_font()
 
 # ==========================================
 # 3. Secrets設定
@@ -270,7 +301,7 @@ V3_PDF_WIDTH_MAP = {k: w for k, _, w, _ in CUTTING_COLS_SPEC}
 V3_EXCEL_WIDTH_MAP = {k: w for k, _, _, w in CUTTING_COLS_SPEC}
 
 # ==========================================
-# PDF生成関数（一覧表② / ③断裁用・1行目高さ1.2cm）
+# PDF生成関数（一覧表② / ③断裁用・全要素太字対応）
 # ==========================================
 def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
     df = filter_df_for_export(df, table_mode=table_mode)
@@ -278,20 +309,45 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A3), leftMargin=8, rightMargin=8, topMargin=14, bottomMargin=14)
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("Title", parent=styles["Normal"], fontName=FONT_NAME, fontSize=14, leading=16, textColor=colors.HexColor("#1E3A8A"))
-    group_header_style = ParagraphStyle("GroupHeader", parent=styles["Normal"], fontName=FONT_NAME, fontSize=10, leading=13, textColor=colors.HexColor("#1E3A8A"), spaceBefore=5, spaceAfter=2, leftIndent=0, alignment=0)
 
-    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5, leading=9.0, textColor=colors.white, alignment=1)
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontName=FONT_NAME, fontSize=7.5 if table_mode == "v2" else 7.0, leading=9.0 if table_mode == "v2" else 8.5, textColor=colors.HexColor("#0F172A"))
-    red_cell_style = ParagraphStyle("RedCell", parent=cell_style, textColor=colors.HexColor("#DC2626"))
-    memo_style = ParagraphStyle("MemoCell", parent=cell_style, fontSize=8.0 if table_mode == "v2" else 7.5, leading=10.0 if table_mode == "v2" else 9.5)
+    title_style = ParagraphStyle(
+        "Title", parent=styles["Normal"],
+        fontName=BOLD_FONT_NAME, fontSize=14, leading=16, textColor=colors.HexColor("#1E3A8A")
+    )
+    group_header_style = ParagraphStyle(
+        "GroupHeader", parent=styles["Normal"],
+        fontName=BOLD_FONT_NAME, fontSize=10, leading=13, textColor=colors.HexColor("#1E3A8A"),
+        spaceBefore=5, spaceAfter=2, leftIndent=0, alignment=0
+    )
+    header_style = ParagraphStyle(
+        "Header", parent=styles["Normal"],
+        fontName=BOLD_FONT_NAME, fontSize=7.5, leading=9.0, textColor=colors.white, alignment=1
+    )
+    cell_style = ParagraphStyle(
+        "Cell", parent=styles["Normal"],
+        fontName=BOLD_FONT_NAME,
+        fontSize=7.5 if table_mode == "v2" else 7.0,
+        leading=9.0 if table_mode == "v2" else 8.5,
+        textColor=colors.HexColor("#0F172A")
+    )
+    red_cell_style = ParagraphStyle(
+        "RedCell", parent=cell_style,
+        fontName=BOLD_FONT_NAME,
+        textColor=colors.HexColor("#DC2626")
+    )
+    memo_style = ParagraphStyle(
+        "MemoCell", parent=cell_style,
+        fontName=BOLD_FONT_NAME,
+        fontSize=8.0 if table_mode == "v2" else 7.5,
+        leading=10.0 if table_mode == "v2" else 9.5
+    )
 
     mode_title = "受注一覧表②" if table_mode == "v2" else "受注一覧表③断裁用"
     group_label_str = "出版社一覧表（納期順・判型順）" if group_type == "publisher" else "判型一覧表（判型順・納期順）"
     elements = [
-        Paragraph(f"<b>{mode_title}（{group_label_str}</b>", title_style),
+        Paragraph(f"<b>{mode_title}（{group_label_str}）</b>", title_style),
         Spacer(1, 4),
-        Paragraph(f"<font size=8 color='#64748B'><b>発行日: {date.today().strftime('%Y年%m月%d日')}</b></font>", styles["Normal"]),
+        Paragraph(f"<font name='{BOLD_FONT_NAME}' size=8 color='#64748B'>発行日: {date.today().strftime('%Y年%m月%d日')}</font>", styles["Normal"]),
         Spacer(1, 4),
     ]
 
@@ -406,7 +462,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
     return buffer
 
 # ==========================================
-# Excel生成関数（一覧表② / ③断裁用・1行目高さ1.2cm）
+# Excel生成関数（一覧表② / ③断裁用・全要素太字対応）
 # ==========================================
 def generate_order_excel(df, table_mode="v2", group_type="publisher"):
     df = filter_df_for_export(df, table_mode=table_mode)
@@ -417,10 +473,10 @@ def generate_order_excel(df, table_mode="v2", group_type="publisher"):
     ws.views.sheetView[0].showGridLines = True
 
     font_title = Font(name="Meiryo", size=14, bold=True, color="1E3A8A")
-    font_sub = Font(name="Meiryo", size=9, color="64748B")
+    font_sub = Font(name="Meiryo", size=9, bold=True, color="64748B")
     font_group = Font(name="Meiryo", size=11, bold=True, color="1E3A8A")
     font_header = Font(name="Meiryo", size=10, bold=True, color="FFFFFF")
-    font_cell = Font(name="Meiryo", size=10, color="0F172A")
+    font_cell = Font(name="Meiryo", size=10, bold=True, color="0F172A")
     font_red_cell = Font(name="Meiryo", size=10, bold=True, color="DC2626")
     font_memo = Font(name="Meiryo", size=10, bold=True, color="0F172A")
 
