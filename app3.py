@@ -806,7 +806,7 @@ if search_clicked:
 # ==========================================
 top_h1, top_h2 = st.columns([3, 1])
 with top_h1:
-    st.markdown("### 📋 受注一覧表（タブ①②日付入力更新 ／③受注一覧表OR断裁用一覧表の印刷）")
+    st.markdown("### 📋 各日付更新と受注一覧表出力（タブ①②日付入力更新 ／タブ③受注一覧表OR断裁用一覧表の印刷）")
 with top_h2:
     fs_toggle = st.toggle("🖥️ フルスクリーン", value=st.session_state["fullscreen_mode"], key="fs_main_switch_unified")
     if fs_toggle != st.session_state["fullscreen_mode"]:
