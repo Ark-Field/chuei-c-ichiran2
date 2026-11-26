@@ -909,7 +909,7 @@ if "master_df_baseline" not in st.session_state or st.session_state.get("master_
     st.session_state["master_sig"] = data_signature
 
 def get_compact_2char_column_config() -> dict:
-    """画面表示ラベルを2文字表現に簡素化し、書名・備考を10文字幅に設定した column_config"""
+    """画面表示ラベルを2文字表現に簡素化し、書名10文字幅・備考20文字幅（倍幅）に設定した column_config"""
     return {
         "_row_key": None,
         "_record_idx": None,
@@ -985,8 +985,8 @@ def get_compact_2char_column_config() -> dict:
         "三方日": st.column_config.TextColumn("三方", width=char_to_px(2.5, min_px=52), help="三方日（1126, 125, 11/26）"),
         "仕上日": st.column_config.TextColumn("仕上", width=char_to_px(2.5, min_px=52), help="仕上日（1126, 125, 11/26）"),
         "納品日": st.column_config.TextColumn("納品", width=char_to_px(2.5, min_px=52), help="納品日（1126, 125, 11/26）"),
-        # 備考（10文字幅）
-        "備考": st.column_config.TextColumn("備考", width=char_to_px(10.0, min_px=152)),
+        # 備考（20文字幅・倍サイズ）
+        "備考": st.column_config.TextColumn("備考", width=char_to_px(20.0, min_px=292)),
     }
 
 def sync_tab_edits_to_master(edited_sub_df: pd.DataFrame, editable_cols: list[str]) -> tuple[bool, list[str]]:
@@ -1241,7 +1241,7 @@ if len(curr_master) > 0:
             "急ぎ": st.column_config.TextColumn("急ぎ", disabled=True, width=50),
             "出版社名": st.column_config.TextColumn("出版", disabled=True, width=70),
             "書名": st.column_config.TextColumn("書名", disabled=True, width=char_to_px(10.0, min_px=152)),
-            "備考": st.column_config.TextColumn("備考", disabled=True, width=char_to_px(10.0, min_px=152)),
+            "備考": st.column_config.TextColumn("備考", disabled=True, width=char_to_px(20.0, min_px=292)),
         }
 
         if len(cut_df) > 0:
