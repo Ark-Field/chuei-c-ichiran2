@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import requests
 import pandas as pd
 from datetime import datetime, timedelta, date
@@ -24,10 +25,18 @@ CM_TO_PT = 1.0 / 0.0352778
 ROW1_HEIGHT_CM = 1.2
 ROW1_HEIGHT_PT = ROW1_HEIGHT_CM * CM_TO_PT
 
+# 文字幅（1文字あたり約14px換算）からピクセル幅へ変換するヘルパー
+def char_to_px(chars: float, min_px: int = 40, pad_px: int = 12) -> int:
+    return max(min_px, int(round(chars * 14)) + pad_px)
+
 # ==========================================
 # 1. ページ基本設定 ＆ フルスクリーン・太字切り替えCSS
 # ==========================================
-st.set_page_config(page_title="受注一覧表（②・③断裁用）管理システム", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="受注一覧表（②・③断裁用）管理システム",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 if "fullscreen_mode" not in st.session_state:
     st.session_state["fullscreen_mode"] = False
@@ -40,6 +49,7 @@ bold_table_css = """
     [data-testid="stDataFrame"] td,
     [data-testid="stDataFrame"] input {
         font-weight: 700 !important;
+        font-size: 13px !important;
     }
 """
 
@@ -78,11 +88,6 @@ st.markdown(dynamic_layout_css, unsafe_allow_html=True)
 # 2. 日本語フォント登録処理（ReportLab用・Bold対応＋代替案）
 # ==========================================
 def setup_japanese_font():
-    """
-    戻り値: (regular_font_name, bold_font_name)
-    - NotoSansJP-Bold.ttf がある場合は正規のBoldフォントを登録して紐づける
-    - ない場合は Regular フォントを代替の太字フォント名として登録し、スタイル側でも指定する
-    """
     reg_path = "NotoSansJP-Regular.ttf"
     bold_path = "NotoSansJP-Bold.ttf"
 
@@ -94,7 +99,6 @@ def setup_japanese_font():
                 registerFontFamily("JPFont", normal="JPFont", bold="JPFont-Bold")
                 return "JPFont", "JPFont-Bold"
             else:
-                # 代替案: Boldフォント未配置時はRegularをJPFont-Bold別名で登録
                 pdfmetrics.registerFont(TTFont("JPFont-Bold", reg_path))
                 registerFontFamily("JPFont", normal="JPFont", bold="JPFont-Bold")
                 return "JPFont", "JPFont-Bold"
@@ -130,7 +134,7 @@ else:
 APP_ID = 34  # DB対象アプリID
 
 # ==========================================
-# 4. 判型ソート順定義 ＆ 便利関数
+# 4. 判型ソート順定義 ＆ 日付・文字列便利関数
 # ==========================================
 FORMAT_ORDER_LIST = [
     "新書変", "新書", "文庫", "I・G", "Jr新", "少文", "単行", "判",
@@ -152,12 +156,6 @@ for idx, fmt_name in enumerate(FORMAT_ORDER_LIST):
 
 UNRANKED_FORMAT_RANK = len(FORMAT_ORDER_LIST) + 1
 
-def get_format_rank(fmt_val):
-    s = clean_val(fmt_val).replace("\u3000", "")
-    if not s:
-        return UNRANKED_FORMAT_RANK + 1
-    return FORMAT_RANK_MAP.get(s, UNRANKED_FORMAT_RANK)
-
 def clean_val(val):
     if val is None:
         return ""
@@ -172,6 +170,12 @@ def clean_val(val):
     if s.lower() in ["none", "nan", "nat", "null"]:
         return ""
     return s
+
+def get_format_rank(fmt_val):
+    s = clean_val(fmt_val).replace("\u3000", "")
+    if not s:
+        return UNRANKED_FORMAT_RANK + 1
+    return FORMAT_RANK_MAP.get(s, UNRANKED_FORMAT_RANK)
 
 def format_umu_mark(val):
     s = clean_val(val)
@@ -194,32 +198,96 @@ def filter_df_for_export(df, table_mode="v2"):
         return df[mask].copy().reset_index(drop=True)
     return df.copy()
 
-def parse_date_safe(val):
+def _resolve_year_for_month(month: int, ref_date: date | None = None) -> int:
+    """短縮入力時に月単位の年またぎを自動補正（例：11〜12月に1〜3月を入力→翌年）"""
+    base = ref_date or date.today()
+    year = base.year
+    if base.month >= 11 and month <= 3:
+        year += 1
+    elif base.month <= 2 and month >= 11:
+        year -= 1
+    return year
+
+def parse_short_date(val, ref_date: date | None = None) -> tuple[date | None, str | None]:
+    """
+    短縮数字・各種日付文字列を date 型へ変換する。
+    戻り値: (変換後のdateまたはNone, エラーメッセージまたはNone)
+    対応例:
+      - 空欄 / None -> (None, None)
+      - "1126" -> 2026-11-26 (4桁: MMDD)
+      - "125"  -> 2026-01-25 (3桁: MDD)
+      - "11/26", "11-26", "11.26" -> 2026-11-26
+      - "2026/11/26", "2026-11-26", "20261126" -> 2026-11-26
+    """
+    if val is None:
+        return None, None
+    if isinstance(val, datetime):
+        return val.date(), None
+    if isinstance(val, date):
+        return val, None
+
     s = clean_val(val)
     if not s:
-        return None
-    try:
-        if isinstance(val, (date, datetime)):
-            return val.date() if isinstance(val, datetime) else val
-        return datetime.strptime(s[:10].replace("/", "-"), "%Y-%m-%d").date()
-    except ValueError:
-        return None
+        return None, None
 
-def date_to_str(val):
-    if pd.isna(val) or not val:
-        return ""
-    if isinstance(val, (date, datetime)):
-        return val.strftime("%Y-%m-%d")
-    parsed = parse_date_safe(val)
-    return parsed.strftime("%Y-%m-%d") if parsed else ""
+    # 全角数字・記号を半角化
+    zen_to_han = str.maketrans("０１２３４５６７８９／－．", "0123456789/-.")
+    s = s.translate(zen_to_han).strip()
 
-def format_date_pdf(val):
-    if pd.isna(val) or not val:
-        return ""
-    if isinstance(val, (date, datetime)):
-        return val.strftime("%m/%d")
-    parsed = parse_date_safe(val)
-    return parsed.strftime("%m/%d") if parsed else str(val)
+    # 1) YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD
+    m_ymd = re.match(r"^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$", s)
+    if m_ymd:
+        y, mo, d = int(m_ymd.group(1)), int(m_ymd.group(2)), int(m_ymd.group(3))
+        try:
+            return date(y, mo, d), None
+        except ValueError:
+            return None, f"不正な日付です: '{s}'"
+
+    # 2) YYYYMMDD (8桁数字)
+    if re.match(r"^\d{8}$", s):
+        y, mo, d = int(s[:4]), int(s[4:6]), int(s[6:8])
+        try:
+            return date(y, mo, d), None
+        except ValueError:
+            return None, f"不正な日付です: '{s}'"
+
+    # 3) MM/DD / MM-DD / MM.DD
+    m_md = re.match(r"^(\d{1,2})[/\-.](\d{1,2})$", s)
+    if m_md:
+        mo, d = int(m_md.group(1)), int(m_md.group(2))
+        y = _resolve_year_for_month(mo, ref_date)
+        try:
+            return date(y, mo, d), None
+        except ValueError:
+            return None, f"不正な月日です: '{s}'"
+
+    # 4) 短縮数字（3桁: MDD / 4桁: MMDD）
+    if re.match(r"^\d{3,4}$", s):
+        if len(s) == 3:
+            mo, d = int(s[0]), int(s[1:])
+        else:
+            mo, d = int(s[:2]), int(s[2:])
+        y = _resolve_year_for_month(mo, ref_date)
+        try:
+            return date(y, mo, d), None
+        except ValueError:
+            return None, f"不正な短縮日付です: '{s}'（MM/DDを確認してください）"
+
+    return None, f"日付形式を認識できません: '{s}'（例: 1126, 125, 11/26）"
+
+def format_mmdd(val) -> str:
+    """画面テーブル表示用（MM/DD文字列）"""
+    d, _ = parse_short_date(val)
+    return d.strftime("%m/%d") if d else ""
+
+def date_to_api_str(val) -> str:
+    """@ポケット API送信用の YYYY-MM-DD 文字列"""
+    d, _ = parse_short_date(val)
+    return d.strftime("%Y-%m-%d") if d else ""
+
+def format_date_pdf(val) -> str:
+    d, _ = parse_short_date(val)
+    return d.strftime("%m/%d") if d else clean_val(val)
 
 def update_pocket_record(record_id, update_data):
     if not record_id:
@@ -423,7 +491,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
                     val_str = format_date_pdf(row.get(c, ""))
                 else:
                     raw_val = row.get(c, "")
-                    val_str = str(raw_val) if pd.notna(raw_val) else ""
+                    val_str = clean_val(raw_val)
 
                 if is_urgent and (c in ["納期2", "急ぎ"]):
                     row_cells_1.append(Paragraph(f"<b>{val_str}</b>", red_cell_style))
@@ -433,7 +501,7 @@ def generate_order_pdf(df, table_mode="v2", group_type="publisher"):
             table_data.append(row_cells_1)
             row_heights.append(ROW1_HEIGHT_CM * cm)
 
-            memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
+            memo_val = clean_val(row.get("備考", "")) if "備考" in df.columns else ""
             memo_html = memo_val.replace("\n", "<br/>")
             memo_cell = Paragraph(f"<b>備考: {memo_html}</b>", memo_style)
             row_cells_2 = [memo_cell] + [Paragraph("", cell_style) for _ in range(len(available_top_cols) - 1)]
@@ -576,7 +644,7 @@ def generate_order_excel(df, table_mode="v2", group_type="publisher"):
                     row_vals.append(format_date_pdf(row.get(c, "")))
                 else:
                     raw_val = row.get(c, "")
-                    row_vals.append(str(raw_val) if pd.notna(raw_val) else "")
+                    row_vals.append(clean_val(raw_val))
 
             ws.append(row_vals)
             ws.row_dimensions[data_row_idx].height = ROW1_HEIGHT_PT
@@ -591,7 +659,7 @@ def generate_order_excel(df, table_mode="v2", group_type="publisher"):
             current_row += 1
 
             memo_row_idx = current_row
-            memo_val = str(row["備考"]) if "備考" in df.columns and pd.notna(row["備考"]) else ""
+            memo_val = clean_val(row.get("備考", "")) if "備考" in df.columns else ""
             ws.append([f"備考: {memo_val}"] + [""] * (max_col_idx - 1))
             ws.merge_cells(start_row=memo_row_idx, start_column=1, end_row=memo_row_idx, end_column=max_col_idx)
             ws.row_dimensions[memo_row_idx].height = 64
@@ -694,7 +762,12 @@ if "api_records" not in st.session_state or url_order_no:
         else:
             default_end = date(today_date.year, today_date.month + 1, 1) - timedelta(days=1)
 
-        st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波", date_field="field-52")
+        st.session_state["api_records"] = fetch_pocket_records(
+            start_date=default_start,
+            end_date=default_end,
+            target_publisher="岩波",
+            date_field="field-52"
+        )
 
 # ==========================================
 # 6. サイドバー（検索条件の設定）
@@ -741,37 +814,30 @@ if search_clicked:
     st.rerun()
 
 # ==========================================
-# 7. メイン画面（画面上の帳票切替＆表示）
+# 7. マスターデータ構築（全項目保持・変更差分同期用）
 # ==========================================
-mode_choice = st.radio(
-    "📑 表示する一覧表を選択",
-    options=["受注一覧表②", "受注一覧表③断裁用"],
-    horizontal=True,
-    key="table_mode_selector"
-)
-current_table_mode = "v2" if "②" in mode_choice else "v3"
-
-st.header(f"📋 {mode_choice}（{'各日付更新' if current_table_mode == 'v2' else '断裁・有無確認（閲覧用）'}）")
+st.header("📋 受注一覧表（②日付入力 2タブ／③断裁用）")
 
 fs_toggle = st.toggle("🖥️ 画面を広々表示（フルスクリーンモード）", value=st.session_state["fullscreen_mode"], key="fs_main_switch_unified")
 if fs_toggle != st.session_state["fullscreen_mode"]:
     st.session_state["fullscreen_mode"] = fs_toggle
     st.rerun()
 
-st.markdown("---")
+st.caption("💡 日付列は「1126」「125」「11/26」などの短縮入力に対応しています。更新チェックは不要で、変更された行だけが自動検知されてDBへ保存されます。")
 
 api_records = st.session_state.get("api_records", None)
 
-if api_records:
-    flat_data = []
-    for record_idx, r in enumerate(api_records):
-        rec_id = r.get("_recordId", "")
-        detail_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{rec_id}/detail" if rec_id and rec_id.lower() != "none" else ""
+def build_master_df(records, exclude_iwa: bool) -> pd.DataFrame:
+    if not records:
+        return pd.DataFrame()
+    rows = []
+    for record_idx, r in enumerate(records):
+        h_pub = clean_val(r.get("field-105", ""))
+        if exclude_iwa and "岩波" in h_pub:
+            continue
 
-        h_ord_no = clean_val(r.get("field-2", ""))
-        h_mihon = parse_date_safe(r.get("field-54"))
-        h_haibon = parse_date_safe(r.get("field-56"))
-        h_due = parse_date_safe(r.get("field-52"))
+        rec_id = clean_val(r.get("_recordId", ""))
+        detail_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{rec_id}/detail" if rec_id and rec_id.lower() != "none" else ""
 
         val_102 = clean_val(r.get("field-102", ""))
         if val_102 not in ["", "確定", "上旬", "中旬", "下旬"]:
@@ -779,28 +845,6 @@ if api_records:
         val_103 = clean_val(r.get("field-103", ""))
         if val_103 not in ["", "急"]:
             val_103 = ""
-
-        h_pub = clean_val(r.get("field-105", ""))
-        if exclude_iwanami and "岩波" in h_pub:
-            continue
-
-        h_format = clean_val(r.get("field-23", ""))
-        h_title = clean_val(r.get("field-13", ""))
-        h_print_count = clean_val(r.get("field-28", ""))
-        h_times_count = clean_val(r.get("field-96", ""))
-        h_price = clean_val(r.get("field-5", ""))
-        h_qty = clean_val(r.get("field-4", ""))
-        h_cust_keeping = clean_val(r.get("field-81", ""))
-        h_total_pages = clean_val(r.get("field-82", ""))
-        h_p32 = clean_val(r.get("field-30", ""))
-        h_p16 = clean_val(r.get("field-31", ""))
-        h_p8 = clean_val(r.get("field-32", ""))
-        h_p4 = clean_val(r.get("field-33", ""))
-        h_p2 = clean_val(r.get("field-34", ""))
-        h_printer = clean_val(r.get("field-14", ""))
-        h_print_date = parse_date_safe(r.get("field-51"))
-        h_folding = clean_val(r.get("field-16", ""))
-        h_memo = clean_val(r.get("field-45", ""))
 
         sub_90 = r.get("field-90", [])
         sub_91 = r.get("field-91", [])
@@ -813,274 +857,420 @@ if api_records:
         rec_91 = item_91.get("record", item_91) if isinstance(item_91, dict) else {}
         sub_91_id = str(item_91.get("Id") or item_91.get("recordId") or rec_91.get("Id") or "").strip()
 
-        raw_hyoushi = clean_val(rec_91.get("field-91_2"))
-        raw_card = clean_val(rec_91.get("field-91_10"))
-        raw_cover = clean_val(rec_91.get("field-91_6"))
-        raw_obi = clean_val(rec_91.get("field-91_14"))
-
-        base_row = {
-            "更新": False,
-            "詳細": detail_url,
+        rows.append({
+            "_row_key": rec_id if rec_id else f"idx_{record_idx}",
             "_record_idx": record_idx,
             "_recordId": rec_id,
             "_sub_90_id": sub_90_id,
             "_sub_91_id": sub_91_id,
-        }
+            "詳細": detail_url,
+            "受注番号": clean_val(r.get("field-2", "")),
+            "納期": format_mmdd(r.get("field-52")),
+            "納期2": val_102,
+            "急ぎ": val_103,
+            "出版社名": h_pub,
+            "判型": clean_val(r.get("field-23", "")),
+            "書名": clean_val(r.get("field-13", "")),
+            "製本数": clean_val(r.get("field-4", "")),
+            # タブ①：資材・納入日系
+            "見本日": format_mmdd(r.get("field-54")),
+            "配本日": format_mmdd(r.get("field-56")),
+            "表紙日付": format_mmdd(rec_91.get("field-91_1")),
+            "カード日": format_mmdd(rec_91.get("field-91_9")),
+            "カバ日付": format_mmdd(rec_91.get("field-91_5")),
+            "帯日付": format_mmdd(rec_91.get("field-91_13")),
+            # タブ②：工程・製造日系
+            "刷本日": format_mmdd(r.get("field-51")),
+            "折本日": format_mmdd(rec_90.get("field-90_3")),
+            "無線日": format_mmdd(rec_90.get("field-90_4")),
+            "三方日": format_mmdd(rec_90.get("field-90_5")),
+            "仕上日": format_mmdd(rec_90.get("field-90_6")),
+            "納品日": format_mmdd(rec_90.get("field-90_10")),
+            # 共通備考
+            "備考": clean_val(r.get("field-45", "")),
+            # ③断裁用・帳票出力用フィールド
+            "刷数": clean_val(r.get("field-28", "")),
+            "回数": clean_val(r.get("field-96", "")),
+            "単価": clean_val(r.get("field-5", "")),
+            "製品預かり": clean_val(r.get("field-81", "")),
+            "総頁数": clean_val(r.get("field-82", "")),
+            "32P": clean_val(r.get("field-30", "")),
+            "16P": clean_val(r.get("field-31", "")),
+            "8P": clean_val(r.get("field-32", "")),
+            "4P": clean_val(r.get("field-33", "")),
+            "2P": clean_val(r.get("field-34", "")),
+            "印刷所": clean_val(r.get("field-14", "")),
+            "折": clean_val(r.get("field-16", "")),
+            "表紙有無": format_umu_mark(clean_val(rec_91.get("field-91_2"))),
+            "表紙確認": "",
+            "カード有無": format_umu_mark(clean_val(rec_91.get("field-91_10"))),
+            "カード確認": "",
+            "カバー有無": format_umu_mark(clean_val(rec_91.get("field-91_6"))),
+            "カバー確認": "",
+            "帯有無": format_umu_mark(clean_val(rec_91.get("field-91_14"))),
+            "帯確認": "",
+        })
+    return pd.DataFrame(rows)
 
-        if current_table_mode == "v2":
-            base_row.update({
-                "受注番号": h_ord_no,
-                "見本日": h_mihon,
-                "配本日": h_haibon,
-                "納期": h_due,
-                "納期2": val_102,
-                "急ぎ": val_103,
-                "出版社名": h_pub,
-                "判型": h_format,
-                "書名": h_title,
-                "刷数": h_print_count,
-                "回数": h_times_count,
-                "単価": h_price,
-                "製本数": h_qty,
-                "製品預かり": h_cust_keeping,
-                "総頁数": h_total_pages,
-                "32P": h_p32,
-                "16P": h_p16,
-                "8P": h_p8,
-                "4P": h_p4,
-                "2P": h_p2,
-                "印刷所": h_printer,
-                "刷本日": h_print_date,
-                "折": h_folding,
-                "折本日": parse_date_safe(rec_90.get("field-90_3")),
-                "無線日": parse_date_safe(rec_90.get("field-90_4")),
-                "三方日": parse_date_safe(rec_90.get("field-90_5")),
-                "仕上日": parse_date_safe(rec_90.get("field-90_6")),
-                "納品日": parse_date_safe(rec_90.get("field-90_10")),
-                "表紙日付": parse_date_safe(rec_91.get("field-91_1")),
-                "カード日": parse_date_safe(rec_91.get("field-91_9")),
-                "カバ日付": parse_date_safe(rec_91.get("field-91_5")),
-                "帯日付": parse_date_safe(rec_91.get("field-91_13")),
-                "備考": h_memo
-            })
-        else:
-            base_row.update({
-                "受注番号": h_ord_no,
-                "納期": h_due,
-                "判型": h_format,
-                "納期2": val_102,
-                "急ぎ": val_103,
-                "出版社名": h_pub,
-                "書名": h_title,
-                "刷数": h_print_count,
-                "回数": h_times_count,
-                "単価": h_price,
-                "製本数": h_qty,
-                "製品預かり": h_cust_keeping,
-                "総頁数": h_total_pages,
-                "32P": h_p32,
-                "16P": h_p16,
-                "8P": h_p8,
-                "4P": h_p4,
-                "2P": h_p2,
-                "印刷所": h_printer,
-                "表紙有無": format_umu_mark(raw_hyoushi),
-                "表紙確認": "",
-                "カード有無": format_umu_mark(raw_card),
-                "カード確認": "",
-                "カバー有無": format_umu_mark(raw_cover),
-                "カバー確認": "",
-                "帯有無": format_umu_mark(raw_obi),
-                "帯確認": "",
-                "備考": h_memo
-            })
+df_master = build_master_df(api_records or [], exclude_iwanami)
 
-        flat_data.append(base_row)
+# 検索やリロード時に基準マスターを初期化するキー管理
+data_signature = f"{len(api_records or [])}_{exclude_iwanami}_{current_group_type}_{search_clicked}"
+if "master_df_baseline" not in st.session_state or st.session_state.get("master_sig") != data_signature:
+    st.session_state["master_df_baseline"] = sort_order_dataframe(df_master.copy(), group_type=current_group_type)
+    st.session_state["master_df_current"] = sort_order_dataframe(df_master.copy(), group_type=current_group_type)
+    st.session_state["master_sig"] = data_signature
 
-    df_view = pd.DataFrame(flat_data)
+def get_common_column_config() -> dict:
+    return {
+        "_row_key": None,
+        "_record_idx": None,
+        "_recordId": None,
+        "_sub_90_id": None,
+        "_sub_91_id": None,
+        "詳細": st.column_config.LinkColumn(
+            "詳細",
+            help="@ポケット詳細画面を開きます",
+            display_text="🔗",
+            width=char_to_px(1.5, min_px=42, pad_px=8),
+            pinned=True,
+        ),
+        "受注番号": st.column_config.TextColumn(
+            "受注番号",
+            disabled=True,
+            width=char_to_px(3.0, min_px=56),
+            pinned=True,
+        ),
+        "納期": st.column_config.TextColumn(
+            "納期",
+            disabled=True,
+            width=char_to_px(2.5, min_px=52),
+            pinned=True,
+        ),
+        "納期2": st.column_config.SelectboxColumn(
+            "納期2",
+            options=["", "確定", "上旬", "中旬", "下旬"],
+            width=char_to_px(2.5, min_px=58),
+            pinned=True,
+        ),
+        "急ぎ": st.column_config.SelectboxColumn(
+            "急ぎ",
+            options=["", "急"],
+            width=char_to_px(2.0, min_px=48),
+            pinned=True,
+        ),
+        "出版社名": st.column_config.TextColumn(
+            "出版社名",
+            disabled=True,
+            width=char_to_px(3.0, min_px=56),
+            pinned=True,
+        ),
+        "判型": st.column_config.TextColumn(
+            "判型",
+            disabled=True,
+            width=char_to_px(2.0, min_px=48),
+            pinned=True,
+        ),
+        "書名": st.column_config.TextColumn(
+            "書名",
+            disabled=True,
+            width=char_to_px(7.0, min_px=112),
+            pinned=True,
+        ),
+        "製本数": st.column_config.TextColumn(
+            "製本数",
+            disabled=True,
+            width=char_to_px(2.5, min_px=52),
+            pinned=True,
+        ),
+        # タブ① 日付列（2.5文字幅）
+        "見本日": st.column_config.TextColumn("見本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "配本日": st.column_config.TextColumn("配本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "表紙日付": st.column_config.TextColumn("表紙日付", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "カード日": st.column_config.TextColumn("カード日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "カバ日付": st.column_config.TextColumn("カバ日付", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "帯日付": st.column_config.TextColumn("帯日付", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        # タブ② 日付列（2.5文字幅）
+        "刷本日": st.column_config.TextColumn("刷本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "折本日": st.column_config.TextColumn("折本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "無線日": st.column_config.TextColumn("無線日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "三方日": st.column_config.TextColumn("三方日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "仕上日": st.column_config.TextColumn("仕上日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        "納品日": st.column_config.TextColumn("納品日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        # 備考
+        "備考": st.column_config.TextColumn("備考", width=char_to_px(8.0, min_px=125)),
+    }
 
-    if len(df_view) > 0:
-        st.success(f"✨ 対象レコード **{len(df_view)} 件** を取得しました（現在表示: **{mode_choice}**）。")
+def sync_tab_edits_to_master(edited_sub_df: pd.DataFrame, editable_cols: list[str]) -> tuple[bool, list[str]]:
+    """
+    タブで編集された値を master_df_current に反映し、短縮日付のバリデーションを行う。
+    戻り値: (全件正常か, エラーメッセージ一覧)
+    """
+    errors: list[str] = []
+    date_cols = {"見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日"}
+    master_curr = st.session_state["master_df_current"].copy()
+    key_to_idx = {k: idx for idx, k in enumerate(master_curr["_row_key"])}
 
-        df_view = sort_order_dataframe(df_view, group_type=current_group_type)
+    for _, erow in edited_sub_df.iterrows():
+        rkey = erow["_row_key"]
+        if rkey not in key_to_idx:
+            continue
+        m_idx = key_to_idx[rkey]
+        ord_label = clean_val(erow.get("受注番号", "")) or f"行{m_idx + 1}"
 
-        common_col_cfg = {
-            "更新": st.column_config.CheckboxColumn("更新", required=True, width="small"),
-            "詳細": st.column_config.LinkColumn(
-                "🔗 @DB詳細",
-                help="DBの該当データ画面へジャンプします",
-                display_text="📝 詳細",
-                width="small"
-            ),
-            "_record_idx": None,
-            "_recordId": None,
-            "_sub_90_id": None,
-            "_sub_91_id": None,
-            "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width=85),
-            "納期": st.column_config.DateColumn("納期", format="MM/DD", disabled=True, width=65),
-            "判型": st.column_config.TextColumn("判型", disabled=True, width=65),
-            "納期2": st.column_config.SelectboxColumn(
-                "納期2",
-                options=["", "確定", "上旬", "中旬", "下旬"],
-                width=65,
-                help="納期の上旬・中旬・下旬・確定を選択します (field-102)"
-            ),
-            "急ぎ": st.column_config.SelectboxColumn(
-                "急ぎ",
-                options=["", "急"],
-                width=55,
-                help="急ぎ案件の場合は「急」を選択します (field-103)"
-            ),
-            "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width=70),
-            "書名": st.column_config.TextColumn("書名", disabled=True, width=260 if current_table_mode == "v2" else 220),
-            "刷数": st.column_config.TextColumn("刷数", width=55),
-            "回数": st.column_config.TextColumn("回数", width=55),
-            "単価": st.column_config.TextColumn("単価", disabled=True, width=65),
-            "製本数": st.column_config.TextColumn("製本数", disabled=True, width=70),
-            "製品預かり": st.column_config.TextColumn("製品預かり", disabled=True, width=75),
-            "総頁数": st.column_config.TextColumn("総頁数", disabled=True, width=65),
-            "32P": st.column_config.TextColumn("32P", disabled=True, width=50),
-            "16P": st.column_config.TextColumn("16P", disabled=True, width=55),
-            "8P": st.column_config.TextColumn("8P", disabled=True, width=60),
-            "4P": st.column_config.TextColumn("4P", disabled=True, width=65),
-            "2P": st.column_config.TextColumn("2P", disabled=True, width=70),
-            "印刷所": st.column_config.TextColumn("印刷所", disabled=True, width=70),
-            "備考": st.column_config.TextColumn("備考", width="medium")
-        }
+        for col in editable_cols:
+            raw_v = erow.get(col, "")
+            if col in date_cols:
+                parsed_d, err = parse_short_date(raw_v)
+                if err:
+                    errors.append(f"受注番号 {ord_label} [{col}]: {err}")
+                else:
+                    master_curr.at[m_idx, col] = parsed_d.strftime("%m/%d") if parsed_d else ""
+            else:
+                master_curr.at[m_idx, col] = clean_val(raw_v)
 
-        if current_table_mode == "v2":
-            common_col_cfg.update({
-                "見本日": st.column_config.DateColumn("見本日", format="MM/DD", width=65),
-                "配本日": st.column_config.DateColumn("配本日", format="MM/DD", width=65),
-                "刷本日": st.column_config.DateColumn("刷本日", format="MM/DD", width=65),
-                "折": st.column_config.TextColumn("折", disabled=True, width="small"),
-                "折本日": st.column_config.DateColumn("折本日", format="MM/DD", width=65),
-                "無線日": st.column_config.DateColumn("無線日", format="MM/DD", width=65),
-                "三方日": st.column_config.DateColumn("三方日", format="MM/DD", width=65),
-                "仕上日": st.column_config.DateColumn("仕上日", format="MM/DD", width=65),
-                "納品日": st.column_config.DateColumn("納品日", format="MM/DD", width=65),
-                "表紙日付": st.column_config.DateColumn("表紙日付", format="MM/DD", width=65),
-                "カード日": st.column_config.DateColumn("カード日", format="MM/DD", width=65),
-                "カバ日付": st.column_config.DateColumn("カバ日付", format="MM/DD", width=65),
-                "帯日付": st.column_config.DateColumn("帯日付", format="MM/DD", width=65),
-            })
-        else:
-            common_col_cfg.update({
-                "表紙有無": st.column_config.TextColumn("表紙有無", disabled=True, width=80),
-                "表紙確認": st.column_config.TextColumn("表紙確認", disabled=True, width=80),
-                "カード有無": st.column_config.TextColumn("カード有無", disabled=True, width=85),
-                "カード確認": st.column_config.TextColumn("カード確認", disabled=True, width=85),
-                "カバー有無": st.column_config.TextColumn("カバー有無", disabled=True, width=90),
-                "カバー確認": st.column_config.TextColumn("カバー確認", disabled=True, width=90),
-                "帯有無": st.column_config.TextColumn("帯有無", disabled=True, width=80),
-                "帯確認": st.column_config.TextColumn("帯確認", disabled=True, width=80),
-            })
+    st.session_state["master_df_current"] = master_curr
+    return (len(errors) == 0), errors
 
-        edited_df = st.data_editor(
-            df_view,
+def apply_auto_diff_save(tab_mode: str):
+    """
+    基準データ（master_df_baseline）と比較し、変更があった行だけを自動抽出して @ポケット API へ保存する。
+    tab_mode: "material"（資材・納入日系）または "process"（工程・製造日系）
+    """
+    base_df = st.session_state["master_df_baseline"]
+    curr_df = st.session_state["master_df_current"]
+
+    if tab_mode == "material":
+        watched_cols = ["納期2", "急ぎ", "見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付", "備考"]
+    else:
+        watched_cols = ["納期2", "急ぎ", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日", "備考"]
+
+    base_map = {row["_row_key"]: row for _, row in base_df.iterrows()}
+    changed_rows = []
+
+    for _, crow in curr_df.iterrows():
+        rkey = crow["_row_key"]
+        brow = base_map.get(rkey)
+        if brow is None:
+            continue
+        is_changed = False
+        for col in watched_cols:
+            b_val = clean_val(brow.get(col, ""))
+            c_val = clean_val(crow.get(col, ""))
+            if b_val != c_val:
+                is_changed = True
+                break
+        if is_changed:
+            changed_rows.append(crow)
+
+    if not changed_rows:
+        st.info("ℹ️ 前回保存（または検索）時から変更された行はありません。")
+        return
+
+    success_count = 0
+    error_messages = []
+
+    with st.spinner(f"変更された {len(changed_rows)} 件をDBへ自動反映中..."):
+        for row in changed_rows:
+            r_id = clean_val(row.get("_recordId", ""))
+            sub_90_id = clean_val(row.get("_sub_90_id", ""))
+            sub_91_id = clean_val(row.get("_sub_91_id", ""))
+
+            if not r_id:
+                error_messages.append(f"受注番号 {clean_val(row.get('受注番号', ''))}: _recordId が見つかりません")
+                continue
+
+            if tab_mode == "material":
+                sub_91_item = {
+                    "record": {
+                        "field-91_1": date_to_api_str(row.get("表紙日付")),
+                        "field-91_9": date_to_api_str(row.get("カード日")),
+                        "field-91_5": date_to_api_str(row.get("カバ日付")),
+                        "field-91_13": date_to_api_str(row.get("帯日付")),
+                    }
+                }
+                if sub_91_id:
+                    sub_91_item["Id"] = sub_91_id
+
+                payload = {
+                    "field-54": date_to_api_str(row.get("見本日")),
+                    "field-56": date_to_api_str(row.get("配本日")),
+                    "field-102": clean_val(row.get("納期2", "")),
+                    "field-103": clean_val(row.get("急ぎ", "")),
+                    "field-45": clean_val(row.get("備考", "")),
+                    "field-91": [sub_91_item],
+                }
+            else:
+                sub_90_item = {
+                    "record": {
+                        "field-90_3": date_to_api_str(row.get("折本日")),
+                        "field-90_4": date_to_api_str(row.get("無線日")),
+                        "field-90_5": date_to_api_str(row.get("三方日")),
+                        "field-90_6": date_to_api_str(row.get("仕上日")),
+                        "field-90_10": date_to_api_str(row.get("納品日")),
+                    }
+                }
+                if sub_90_id:
+                    sub_90_item["Id"] = sub_90_id
+
+                payload = {
+                    "field-51": date_to_api_str(row.get("刷本日")),
+                    "field-102": clean_val(row.get("納期2", "")),
+                    "field-103": clean_val(row.get("急ぎ", "")),
+                    "field-45": clean_val(row.get("備考", "")),
+                    "field-90": [sub_90_item],
+                }
+
+            ok, msg = update_pocket_record(r_id, payload)
+            if ok:
+                success_count += 1
+            else:
+                error_messages.append(f"ID {r_id}（{clean_val(row.get('受注番号', ''))}）: {msg}")
+
+    if success_count > 0:
+        st.success(f"✨ 変更を自動検知し、**{success_count} 件** をDBへ保存しました！")
+        # 保存成功分を新たな基準データとして同期
+        st.session_state["master_df_baseline"] = st.session_state["master_df_current"].copy()
+    if error_messages:
+        for err in error_messages:
+            st.error(f"❌ 保存エラー: {err}")
+
+curr_master = st.session_state.get("master_df_current", pd.DataFrame())
+
+if len(curr_master) > 0:
+    st.success(f"✨ 対象レコード **{len(curr_master)} 件** を表示中です。")
+
+    fixed_cols = ["_row_key", "詳細", "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "製本数"]
+    col_cfg = get_common_column_config()
+
+    tab_mat, tab_proc, tab_cut = st.tabs([
+        "📦 ① 資材・納入日系",
+        "⚙️ ② 工程・製造日系",
+        "✂️ 受注一覧表③断裁用（閲覧・帳票）"
+    ])
+
+    # --- タブ①：資材・納入日系 ---
+    with tab_mat:
+        mat_date_cols = ["見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付"]
+        mat_view_cols = fixed_cols + mat_date_cols + ["備考"]
+        mat_df = curr_master[mat_view_cols].copy()
+
+        edited_mat = st.data_editor(
+            mat_df,
             num_rows="fixed",
-            key=f"grid_{current_table_mode}",
+            key="editor_tab_material",
             use_container_width=False,
-            column_config=common_col_cfg
+            column_config=col_cfg,
+            hide_index=True,
         )
 
-        # --- DB一括保存ボタンの処理 ---
-        st.markdown("---")
-        col_save, col_d1, col_d2 = st.columns([1.5, 1.5, 1.5])
+        ok_parse, parse_errs = sync_tab_edits_to_master(edited_mat, ["納期2", "急ぎ"] + mat_date_cols + ["備考"])
+        if not ok_parse:
+            for pe in parse_errs:
+                st.warning(f"⚠️ {pe}")
 
-        with col_save:
-            if st.button("💾 変更した行を DB に保存", type="primary", key=f"save_pocket_btn_{current_table_mode}"):
-                update_rows = edited_df[edited_df["更新"] == True]
-                if len(update_rows) == 0:
-                    st.warning("⚠️ 「更新」にチェックが入っている行がありません。")
-                else:
-                    success_count = 0
-                    error_messages = []
-                    with st.spinner("DBへデータを保存中..."):
-                        for _, row in update_rows.iterrows():
-                            r_id = row.get("_recordId", "")
-                            sub_90_id = row.get("_sub_90_id", "")
-                            sub_91_id = row.get("_sub_91_id", "")
+        if st.button("💾 変更行を自動保存（資材・納入日系）", type="primary", key="auto_save_mat"):
+            ok_p2, p_errs2 = sync_tab_edits_to_master(edited_mat, ["納期2", "急ぎ"] + mat_date_cols + ["備考"])
+            if not ok_p2:
+                st.error("入力エラーがあるため保存を中止しました。日付の入力値を確認してください。")
+            else:
+                apply_auto_diff_save("material")
 
-                            if current_table_mode == "v2":
-                                sub_90_item = {
-                                    "record": {
-                                        "field-90_3": date_to_str(row.get("折本日")),
-                                        "field-90_4": date_to_str(row.get("無線日")),
-                                        "field-90_5": date_to_str(row.get("三方日")),
-                                        "field-90_6": date_to_str(row.get("仕上日")),
-                                        "field-90_10": date_to_str(row.get("納品日"))
-                                    }
-                                }
-                                if sub_90_id:
-                                    sub_90_item["Id"] = sub_90_id
+    # --- タブ②：工程・製造日系 ---
+    with tab_proc:
+        proc_date_cols = ["刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日"]
+        proc_view_cols = fixed_cols + proc_date_cols + ["備考"]
+        proc_df = curr_master[proc_view_cols].copy()
 
-                                sub_91_item = {
-                                    "record": {
-                                        "field-91_1": date_to_str(row.get("表紙日付")),
-                                        "field-91_9": date_to_str(row.get("カード日")),
-                                        "field-91_5": date_to_str(row.get("カバ日付")),
-                                        "field-91_13": date_to_str(row.get("帯日付"))
-                                    }
-                                }
-                                if sub_91_id:
-                                    sub_91_item["Id"] = sub_91_id
+        edited_proc = st.data_editor(
+            proc_df,
+            num_rows="fixed",
+            key="editor_tab_process",
+            use_container_width=False,
+            column_config=col_cfg,
+            hide_index=True,
+        )
 
-                                payload = {
-                                    "field-2": clean_val(row.get("受注番号", "")),
-                                    "field-54": date_to_str(row.get("見本日")),
-                                    "field-56": date_to_str(row.get("配本日")),
-                                    "field-102": clean_val(row.get("納期2", "")),
-                                    "field-103": clean_val(row.get("急ぎ", "")),
-                                    "field-28": clean_val(row.get("刷数", "")),
-                                    "field-51": date_to_str(row.get("刷本日")),
-                                    "field-45": clean_val(row.get("備考", "")),
-                                    "field-90": [sub_90_item],
-                                    "field-91": [sub_91_item]
-                                }
-                            else:
-                                payload = {
-                                    "field-2": clean_val(row.get("受注番号", "")),
-                                    "field-102": clean_val(row.get("納期2", "")),
-                                    "field-103": clean_val(row.get("急ぎ", "")),
-                                    "field-28": clean_val(row.get("刷数", "")),
-                                    "field-45": clean_val(row.get("備考", ""))
-                                }
+        ok_parse_p, parse_errs_p = sync_tab_edits_to_master(edited_proc, ["納期2", "急ぎ"] + proc_date_cols + ["備考"])
+        if not ok_parse_p:
+            for pe in parse_errs_p:
+                st.warning(f"⚠️ {pe}")
 
-                            ok, msg = update_pocket_record(r_id, payload)
-                            if ok:
-                                success_count += 1
-                            else:
-                                error_messages.append(f"ID {r_id}: {msg}")
+        if st.button("💾 変更行を自動保存（工程・製造日系）", type="primary", key="auto_save_proc"):
+            ok_p3, p_errs3 = sync_tab_edits_to_master(edited_proc, ["納期2", "急ぎ"] + proc_date_cols + ["備考"])
+            if not ok_p3:
+                st.error("入力エラーがあるため保存を中止しました。日付の入力値を確認してください。")
+            else:
+                apply_auto_diff_save("process")
 
-                    if success_count > 0:
-                        st.success(f"✨ **{success_count} 件** のデータを DB へ正常に保存しました！")
-                    if error_messages:
-                        for err in error_messages:
-                            st.error(f"❌ 保存エラー: {err}")
-                    if success_count > 0:
-                        st.rerun()
+    # --- タブ③：受注一覧表③断裁用（閲覧・帳票出力） ---
+    with tab_cut:
+        st.subheader("✂️ 受注一覧表③断裁用（表紙・カード・カバー・帯の有無確認）")
+        cut_cols = [k for k, _, _, _ in CUTTING_COLS_SPEC if k in curr_master.columns] + ["備考"]
+        cut_df = filter_df_for_export(curr_master[cut_cols].copy(), table_mode="v3")
 
-        file_prefix = "受注一覧表2" if current_table_mode == "v2" else "受注一覧表3断裁用"
-        with col_d1:
-            excel_bytes = generate_order_excel(edited_df, table_mode=current_table_mode, group_type=current_group_type)
-            st.download_button(
-                label="📥 Excel でダウンロード",
-                data=excel_bytes,
-                file_name=f"{file_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_excel_{current_table_mode}_{current_group_type}"
+        cut_col_cfg = {
+            "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width=85, pinned=True),
+            "納期": st.column_config.TextColumn("納期", disabled=True, width=65, pinned=True),
+            "判型": st.column_config.TextColumn("判型", disabled=True, width=65, pinned=True),
+            "納期2": st.column_config.TextColumn("納期2", disabled=True, width=65),
+            "急ぎ": st.column_config.TextColumn("急ぎ", disabled=True, width=55),
+            "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width=80),
+            "書名": st.column_config.TextColumn("書名", disabled=True, width=220),
+            "備考": st.column_config.TextColumn("備考", disabled=True, width=180),
+        }
+
+        if len(cut_df) > 0:
+            st.dataframe(
+                cut_df,
+                key="viewer_tab_cutting_v3",
+                use_container_width=False,
+                column_config=cut_col_cfg,
+                hide_index=True,
             )
-        with col_d2:
-            pdf_bytes = generate_order_pdf(edited_df, table_mode=current_table_mode, group_type=current_group_type)
-            st.download_button(
-                label=f"🖨️ A3 PDF ダウンロード（{group_axis_choice[:2]}）",
-                data=pdf_bytes,
-                file_name=f"{file_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
-                mime="application/pdf",
-                key=f"dl_pdf_{current_table_mode}_{current_group_type}"
-            )
-    else:
-        st.warning("⚠️ 条件に一致するデータが見つかりませんでした。")
+        else:
+            st.info("ℹ️ 表紙・カード・カバー・帯のいずれかに該当する断裁対象レコードはありません。")
+
+    # ==========================================
+    # 8. 帳票出力エリア（一覧表② / ③断裁用・PDF / Excel）
+    # ==========================================
+    st.markdown("---")
+    st.subheader("📤 帳票出力（PDF / Excel）")
+
+    exp_c1, exp_c2, exp_c3 = st.columns([1.2, 1.5, 1.5])
+    with exp_c1:
+        export_mode_choice = st.selectbox(
+            "出力帳票の種類",
+            options=["受注一覧表②（全工程）", "受注一覧表③（断裁用）"],
+            index=0,
+            key="export_mode_select"
+        )
+    export_table_mode = "v2" if "②" in export_mode_choice else "v3"
+    export_prefix = "受注一覧表2" if export_table_mode == "v2" else "受注一覧表3断裁用"
+
+    # 帳票出力用に最新の master_df_current を渡す
+    latest_export_df = st.session_state["master_df_current"].copy()
+
+    with exp_c2:
+        excel_bytes = generate_order_excel(latest_export_df, table_mode=export_table_mode, group_type=current_group_type)
+        st.download_button(
+            label="📥 Excel でダウンロード",
+            data=excel_bytes,
+            file_name=f"{export_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"dl_excel_{export_table_mode}_{current_group_type}",
+            use_container_width=True,
+        )
+
+    with exp_c3:
+        pdf_bytes = generate_order_pdf(latest_export_df, table_mode=export_table_mode, group_type=current_group_type)
+        st.download_button(
+            label=f"🖨️ A3 PDF ダウンロード（{group_axis_choice[:2]}）",
+            data=pdf_bytes,
+            file_name=f"{export_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            key=f"dl_pdf_{export_table_mode}_{current_group_type}",
+            use_container_width=True,
+        )
 else:
-    st.warning("⚠️ 対象データが見つかりませんでした。")
+    st.warning("⚠️ 条件に一致するデータが見つかりませんでした。")
