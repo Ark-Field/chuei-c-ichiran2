@@ -24,6 +24,7 @@ from openpyxl.utils import get_column_letter
 CM_TO_PT = 1.0 / 0.0352778
 ROW1_HEIGHT_CM = 1.2
 ROW1_HEIGHT_PT = ROW1_HEIGHT_CM * CM_TO_PT
+TABLE_HEIGHT_30_ROWS = 1050  # 約30行を見渡せるテーブル高さ(px)
 
 # 文字幅（1文字あたり約14px換算）からピクセル幅へ変換するヘルパー
 def char_to_px(chars: float, min_px: int = 40, pad_px: int = 12) -> int:
@@ -63,9 +64,9 @@ if st.session_state["fullscreen_mode"]:
         [data-testid="stSidebar"] {{display: none !important;}}
         [data-testid="stMainBlockContainer"] {{
             max-width: 100% !important;
-            padding-top: 1rem !important;
-            padding-right: 2rem !important;
-            padding-left: 2rem !important;
+            padding-top: 0.75rem !important;
+            padding-right: 1.5rem !important;
+            padding-left: 1.5rem !important;
         }}
         .stApp {{ background-color: #F8FAFC; }}
         {bold_table_css}
@@ -212,12 +213,6 @@ def parse_short_date(val, ref_date: date | None = None) -> tuple[date | None, st
     """
     短縮数字・各種日付文字列を date 型へ変換する。
     戻り値: (変換後のdateまたはNone, エラーメッセージまたはNone)
-    対応例:
-      - 空欄 / None -> (None, None)
-      - "1126" -> 2026-11-26 (4桁: MMDD)
-      - "125"  -> 2026-01-25 (3桁: MDD)
-      - "11/26", "11-26", "11.26" -> 2026-11-26
-      - "2026/11/26", "2026-11-26", "20261126" -> 2026-11-26
     """
     if val is None:
         return None, None
@@ -230,11 +225,9 @@ def parse_short_date(val, ref_date: date | None = None) -> tuple[date | None, st
     if not s:
         return None, None
 
-    # 全角数字・記号を半角化
     zen_to_han = str.maketrans("０１２３４５６７８９／－．", "0123456789/-.")
     s = s.translate(zen_to_han).strip()
 
-    # 1) YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD
     m_ymd = re.match(r"^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$", s)
     if m_ymd:
         y, mo, d = int(m_ymd.group(1)), int(m_ymd.group(2)), int(m_ymd.group(3))
@@ -243,7 +236,6 @@ def parse_short_date(val, ref_date: date | None = None) -> tuple[date | None, st
         except ValueError:
             return None, f"不正な日付です: '{s}'"
 
-    # 2) YYYYMMDD (8桁数字)
     if re.match(r"^\d{8}$", s):
         y, mo, d = int(s[:4]), int(s[4:6]), int(s[6:8])
         try:
@@ -251,7 +243,6 @@ def parse_short_date(val, ref_date: date | None = None) -> tuple[date | None, st
         except ValueError:
             return None, f"不正な日付です: '{s}'"
 
-    # 3) MM/DD / MM-DD / MM.DD
     m_md = re.match(r"^(\d{1,2})[/\-.](\d{1,2})$", s)
     if m_md:
         mo, d = int(m_md.group(1)), int(m_md.group(2))
@@ -261,7 +252,6 @@ def parse_short_date(val, ref_date: date | None = None) -> tuple[date | None, st
         except ValueError:
             return None, f"不正な月日です: '{s}'"
 
-    # 4) 短縮数字（3桁: MDD / 4桁: MMDD）
     if re.match(r"^\d{3,4}$", s):
         if len(s) == 3:
             mo, d = int(s[0]), int(s[1:])
@@ -276,12 +266,10 @@ def parse_short_date(val, ref_date: date | None = None) -> tuple[date | None, st
     return None, f"日付形式を認識できません: '{s}'（例: 1126, 125, 11/26）"
 
 def format_mmdd(val) -> str:
-    """画面テーブル表示用（MM/DD文字列）"""
     d, _ = parse_short_date(val)
     return d.strftime("%m/%d") if d else ""
 
 def date_to_api_str(val) -> str:
-    """@ポケット API送信用の YYYY-MM-DD 文字列"""
     d, _ = parse_short_date(val)
     return d.strftime("%Y-%m-%d") if d else ""
 
@@ -816,14 +804,14 @@ if search_clicked:
 # ==========================================
 # 7. マスターデータ構築（全項目保持・変更差分同期用）
 # ==========================================
-st.header("📋 受注一覧表（②日付入力 2タブ／③断裁用）")
-
-fs_toggle = st.toggle("🖥️ 画面を広々表示（フルスクリーンモード）", value=st.session_state["fullscreen_mode"], key="fs_main_switch_unified")
-if fs_toggle != st.session_state["fullscreen_mode"]:
-    st.session_state["fullscreen_mode"] = fs_toggle
-    st.rerun()
-
-st.caption("💡 日付列は「1126」「125」「11/26」などの短縮入力に対応しています。更新チェックは不要で、変更された行だけが自動検知されてDBへ保存されます。")
+top_h1, top_h2 = st.columns([3, 1])
+with top_h1:
+    st.markdown("### 📋 受注一覧表（②日付入力 2タブ／③断裁用）")
+with top_h2:
+    fs_toggle = st.toggle("🖥️ フルスクリーン", value=st.session_state["fullscreen_mode"], key="fs_main_switch_unified")
+    if fs_toggle != st.session_state["fullscreen_mode"]:
+        st.session_state["fullscreen_mode"] = fs_toggle
+        st.rerun()
 
 api_records = st.session_state.get("api_records", None)
 
@@ -914,14 +902,14 @@ def build_master_df(records, exclude_iwa: bool) -> pd.DataFrame:
 
 df_master = build_master_df(api_records or [], exclude_iwanami)
 
-# 検索やリロード時に基準マスターを初期化するキー管理
 data_signature = f"{len(api_records or [])}_{exclude_iwanami}_{current_group_type}_{search_clicked}"
 if "master_df_baseline" not in st.session_state or st.session_state.get("master_sig") != data_signature:
     st.session_state["master_df_baseline"] = sort_order_dataframe(df_master.copy(), group_type=current_group_type)
     st.session_state["master_df_current"] = sort_order_dataframe(df_master.copy(), group_type=current_group_type)
     st.session_state["master_sig"] = data_signature
 
-def get_common_column_config() -> dict:
+def get_compact_2char_column_config() -> dict:
+    """画面表示ラベルを2文字表現に簡素化した column_config"""
     return {
         "_row_key": None,
         "_record_idx": None,
@@ -932,43 +920,43 @@ def get_common_column_config() -> dict:
             "詳細",
             help="@ポケット詳細画面を開きます",
             display_text="🔗",
-            width=char_to_px(1.5, min_px=42, pad_px=8),
+            width=char_to_px(1.5, min_px=40, pad_px=6),
             pinned=True,
         ),
         "受注番号": st.column_config.TextColumn(
-            "受注番号",
+            "受注",
             disabled=True,
-            width=char_to_px(3.0, min_px=56),
+            width=char_to_px(3.0, min_px=54),
             pinned=True,
         ),
         "納期": st.column_config.TextColumn(
             "納期",
             disabled=True,
-            width=char_to_px(2.5, min_px=52),
+            width=char_to_px(2.5, min_px=50),
             pinned=True,
         ),
         "納期2": st.column_config.SelectboxColumn(
-            "納期2",
+            "納2",
             options=["", "確定", "上旬", "中旬", "下旬"],
-            width=char_to_px(2.5, min_px=58),
+            width=char_to_px(2.5, min_px=56),
             pinned=True,
         ),
         "急ぎ": st.column_config.SelectboxColumn(
             "急ぎ",
             options=["", "急"],
-            width=char_to_px(2.0, min_px=48),
+            width=char_to_px(2.0, min_px=46),
             pinned=True,
         ),
         "出版社名": st.column_config.TextColumn(
-            "出版社名",
+            "出版",
             disabled=True,
-            width=char_to_px(3.0, min_px=56),
+            width=char_to_px(3.0, min_px=54),
             pinned=True,
         ),
         "判型": st.column_config.TextColumn(
             "判型",
             disabled=True,
-            width=char_to_px(2.0, min_px=48),
+            width=char_to_px(2.0, min_px=46),
             pinned=True,
         ),
         "書名": st.column_config.TextColumn(
@@ -978,34 +966,30 @@ def get_common_column_config() -> dict:
             pinned=True,
         ),
         "製本数": st.column_config.TextColumn(
-            "製本数",
+            "製数",
             disabled=True,
-            width=char_to_px(2.5, min_px=52),
+            width=char_to_px(2.5, min_px=50),
             pinned=True,
         ),
-        # タブ① 日付列（2.5文字幅）
-        "見本日": st.column_config.TextColumn("見本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "配本日": st.column_config.TextColumn("配本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "表紙日付": st.column_config.TextColumn("表紙日付", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "カード日": st.column_config.TextColumn("カード日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "カバ日付": st.column_config.TextColumn("カバ日付", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "帯日付": st.column_config.TextColumn("帯日付", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        # タブ② 日付列（2.5文字幅）
-        "刷本日": st.column_config.TextColumn("刷本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "折本日": st.column_config.TextColumn("折本日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "無線日": st.column_config.TextColumn("無線日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "三方日": st.column_config.TextColumn("三方日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "仕上日": st.column_config.TextColumn("仕上日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
-        "納品日": st.column_config.TextColumn("納品日", width=char_to_px(2.5, min_px=54), help="1126, 125, 11/26 などで入力"),
+        # タブ①：資材・納入日系（2文字表現・2.5文字幅）
+        "見本日": st.column_config.TextColumn("見本", width=char_to_px(2.5, min_px=52), help="見本日（1126, 125, 11/26）"),
+        "配本日": st.column_config.TextColumn("配本", width=char_to_px(2.5, min_px=52), help="配本日（1126, 125, 11/26）"),
+        "表紙日付": st.column_config.TextColumn("表紙", width=char_to_px(2.5, min_px=52), help="表紙日付（1126, 125, 11/26）"),
+        "カード日": st.column_config.TextColumn("カド", width=char_to_px(2.5, min_px=52), help="カード日（1126, 125, 11/26）"),
+        "カバ日付": st.column_config.TextColumn("カバ", width=char_to_px(2.5, min_px=52), help="カバー日付（1126, 125, 11/26）"),
+        "帯日付": st.column_config.TextColumn("帯日", width=char_to_px(2.5, min_px=52), help="帯日付（1126, 125, 11/26）"),
+        # タブ②：工程・製造日系（2文字表現・2.5文字幅）
+        "刷本日": st.column_config.TextColumn("刷本", width=char_to_px(2.5, min_px=52), help="刷本日（1126, 125, 11/26）"),
+        "折本日": st.column_config.TextColumn("折本", width=char_to_px(2.5, min_px=52), help="折本日（1126, 125, 11/26）"),
+        "無線日": st.column_config.TextColumn("無線", width=char_to_px(2.5, min_px=52), help="無線日（1126, 125, 11/26）"),
+        "三方日": st.column_config.TextColumn("三方", width=char_to_px(2.5, min_px=52), help="三方日（1126, 125, 11/26）"),
+        "仕上日": st.column_config.TextColumn("仕上", width=char_to_px(2.5, min_px=52), help="仕上日（1126, 125, 11/26）"),
+        "納品日": st.column_config.TextColumn("納品", width=char_to_px(2.5, min_px=52), help="納品日（1126, 125, 11/26）"),
         # 備考
         "備考": st.column_config.TextColumn("備考", width=char_to_px(8.0, min_px=125)),
     }
 
 def sync_tab_edits_to_master(edited_sub_df: pd.DataFrame, editable_cols: list[str]) -> tuple[bool, list[str]]:
-    """
-    タブで編集された値を master_df_current に反映し、短縮日付のバリデーションを行う。
-    戻り値: (全件正常か, エラーメッセージ一覧)
-    """
     errors: list[str] = []
     date_cols = {"見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日"}
     master_curr = st.session_state["master_df_current"].copy()
@@ -1023,7 +1007,7 @@ def sync_tab_edits_to_master(edited_sub_df: pd.DataFrame, editable_cols: list[st
             if col in date_cols:
                 parsed_d, err = parse_short_date(raw_v)
                 if err:
-                    errors.append(f"受注番号 {ord_label} [{col}]: {err}")
+                    errors.append(f"受注 {ord_label} [{col}]: {err}")
                 else:
                     master_curr.at[m_idx, col] = parsed_d.strftime("%m/%d") if parsed_d else ""
             else:
@@ -1032,11 +1016,25 @@ def sync_tab_edits_to_master(edited_sub_df: pd.DataFrame, editable_cols: list[st
     st.session_state["master_df_current"] = master_curr
     return (len(errors) == 0), errors
 
+def count_changed_rows(tab_mode: str) -> int:
+    base_df = st.session_state["master_df_baseline"]
+    curr_df = st.session_state["master_df_current"]
+    if tab_mode == "material":
+        watched_cols = ["納期2", "急ぎ", "見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付", "備考"]
+    else:
+        watched_cols = ["納期2", "急ぎ", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日", "備考"]
+
+    base_map = {row["_row_key"]: row for _, row in base_df.iterrows()}
+    cnt = 0
+    for _, crow in curr_df.iterrows():
+        brow = base_map.get(crow["_row_key"])
+        if brow is None:
+            continue
+        if any(clean_val(brow.get(col, "")) != clean_val(crow.get(col, "")) for col in watched_cols):
+            cnt += 1
+    return cnt
+
 def apply_auto_diff_save(tab_mode: str):
-    """
-    基準データ（master_df_baseline）と比較し、変更があった行だけを自動抽出して @ポケット API へ保存する。
-    tab_mode: "material"（資材・納入日系）または "process"（工程・製造日系）
-    """
     base_df = st.session_state["master_df_baseline"]
     curr_df = st.session_state["master_df_current"]
 
@@ -1053,18 +1051,11 @@ def apply_auto_diff_save(tab_mode: str):
         brow = base_map.get(rkey)
         if brow is None:
             continue
-        is_changed = False
-        for col in watched_cols:
-            b_val = clean_val(brow.get(col, ""))
-            c_val = clean_val(crow.get(col, ""))
-            if b_val != c_val:
-                is_changed = True
-                break
-        if is_changed:
+        if any(clean_val(brow.get(col, "")) != clean_val(crow.get(col, "")) for col in watched_cols):
             changed_rows.append(crow)
 
     if not changed_rows:
-        st.info("ℹ️ 前回保存（または検索）時から変更された行はありません。")
+        st.info("ℹ️ 変更された行はありません。")
         return
 
     success_count = 0
@@ -1077,7 +1068,7 @@ def apply_auto_diff_save(tab_mode: str):
             sub_91_id = clean_val(row.get("_sub_91_id", ""))
 
             if not r_id:
-                error_messages.append(f"受注番号 {clean_val(row.get('受注番号', ''))}: _recordId が見つかりません")
+                error_messages.append(f"受注 {clean_val(row.get('受注番号', ''))}: _recordId が見つかりません")
                 continue
 
             if tab_mode == "material":
@@ -1128,8 +1119,7 @@ def apply_auto_diff_save(tab_mode: str):
                 error_messages.append(f"ID {r_id}（{clean_val(row.get('受注番号', ''))}）: {msg}")
 
     if success_count > 0:
-        st.success(f"✨ 変更を自動検知し、**{success_count} 件** をDBへ保存しました！")
-        # 保存成功分を新たな基準データとして同期
+        st.success(f"✨ **{success_count} 件** をDBへ保存しました！")
         st.session_state["master_df_baseline"] = st.session_state["master_df_current"].copy()
     if error_messages:
         for err in error_messages:
@@ -1138,26 +1128,39 @@ def apply_auto_diff_save(tab_mode: str):
 curr_master = st.session_state.get("master_df_current", pd.DataFrame())
 
 if len(curr_master) > 0:
-    st.success(f"✨ 対象レコード **{len(curr_master)} 件** を表示中です。")
-
     fixed_cols = ["_row_key", "詳細", "受注番号", "納期", "納期2", "急ぎ", "出版社名", "判型", "書名", "製本数"]
-    col_cfg = get_common_column_config()
+    col_cfg = get_compact_2char_column_config()
 
     tab_mat, tab_proc, tab_cut = st.tabs([
-        "📦 ① 資材・納入日系",
-        "⚙️ ② 工程・製造日系",
-        "✂️ 受注一覧表③断裁用（閲覧・帳票）"
+        "📦 ① 資材・納入",
+        "⚙️ ② 工程・製造",
+        "✂️ ③ 断裁・帳票"
     ])
 
-    # --- タブ①：資材・納入日系 ---
+    # --- タブ①：資材・納入日系（保存ボタンを上部に配置＋約30行表示） ---
     with tab_mat:
         mat_date_cols = ["見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付"]
         mat_view_cols = fixed_cols + mat_date_cols + ["備考"]
         mat_df = curr_master[mat_view_cols].copy()
 
+        # 先に前回編集分があれば反映してから件数算出
+        prev_mat_key = "editor_tab_material"
+        if prev_mat_key in st.session_state and isinstance(st.session_state[prev_mat_key], dict):
+            # data_editor の state がある場合は一旦反映
+            pass
+
+        act_c1, act_c2, act_c3 = st.columns([1.8, 1.5, 4.7])
+        with act_c1:
+            save_mat_clicked = st.button("💾 変更行を自動保存", type="primary", key="auto_save_mat_top", use_container_width=True)
+        with act_c2:
+            st.caption(f"全 **{len(mat_df)}** 件（1126 / 125 / 11/26 可）")
+        with act_c3:
+            st.caption("※「更新」チェック不要。変更された行のみ自動判定してDBへ反映します。")
+
         edited_mat = st.data_editor(
             mat_df,
             num_rows="fixed",
+            height=TABLE_HEIGHT_30_ROWS,
             key="editor_tab_material",
             use_container_width=False,
             column_config=col_cfg,
@@ -1169,22 +1172,31 @@ if len(curr_master) > 0:
             for pe in parse_errs:
                 st.warning(f"⚠️ {pe}")
 
-        if st.button("💾 変更行を自動保存（資材・納入日系）", type="primary", key="auto_save_mat"):
+        if save_mat_clicked:
             ok_p2, p_errs2 = sync_tab_edits_to_master(edited_mat, ["納期2", "急ぎ"] + mat_date_cols + ["備考"])
             if not ok_p2:
                 st.error("入力エラーがあるため保存を中止しました。日付の入力値を確認してください。")
             else:
                 apply_auto_diff_save("material")
 
-    # --- タブ②：工程・製造日系 ---
+    # --- タブ②：工程・製造日系（保存ボタンを上部に配置＋約30行表示） ---
     with tab_proc:
         proc_date_cols = ["刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日"]
         proc_view_cols = fixed_cols + proc_date_cols + ["備考"]
         proc_df = curr_master[proc_view_cols].copy()
 
+        p_act_c1, p_act_c2, p_act_c3 = st.columns([1.8, 1.5, 4.7])
+        with p_act_c1:
+            save_proc_clicked = st.button("💾 変更行を自動保存", type="primary", key="auto_save_proc_top", use_container_width=True)
+        with p_act_c2:
+            st.caption(f"全 **{len(proc_df)}** 件（1126 / 125 / 11/26 可）")
+        with p_act_c3:
+            st.caption("※「更新」チェック不要。変更された行のみ自動判定してDBへ反映します。")
+
         edited_proc = st.data_editor(
             proc_df,
             num_rows="fixed",
+            height=TABLE_HEIGHT_30_ROWS,
             key="editor_tab_process",
             use_container_width=False,
             column_config=col_cfg,
@@ -1196,33 +1208,71 @@ if len(curr_master) > 0:
             for pe in parse_errs_p:
                 st.warning(f"⚠️ {pe}")
 
-        if st.button("💾 変更行を自動保存（工程・製造日系）", type="primary", key="auto_save_proc"):
+        if save_proc_clicked:
             ok_p3, p_errs3 = sync_tab_edits_to_master(edited_proc, ["納期2", "急ぎ"] + proc_date_cols + ["備考"])
             if not ok_p3:
                 st.error("入力エラーがあるため保存を中止しました。日付の入力値を確認してください。")
             else:
                 apply_auto_diff_save("process")
 
-    # --- タブ③：受注一覧表③断裁用（閲覧・帳票出力） ---
+    # --- タブ③：受注一覧表③断裁用（閲覧＋帳票出力） ---
     with tab_cut:
-        st.subheader("✂️ 受注一覧表③断裁用（表紙・カード・カバー・帯の有無確認）")
+        st.markdown("#### ✂️ 受注一覧表③断裁用（表紙・カード・カバー・帯の有無確認）")
+
+        latest_export_df = st.session_state["master_df_current"].copy()
+        exp_c1, exp_c2, exp_c3 = st.columns([1.4, 1.5, 1.5])
+        with exp_c1:
+            export_mode_choice = st.selectbox(
+                "出力帳票の種類",
+                options=["受注一覧表②（全工程）", "受注一覧表③（断裁用）"],
+                index=0,
+                key="export_mode_select"
+            )
+        export_table_mode = "v2" if "②" in export_mode_choice else "v3"
+        export_prefix = "受注一覧表2" if export_table_mode == "v2" else "受注一覧表3断裁用"
+
+        with exp_c2:
+            st.write("")
+            excel_bytes = generate_order_excel(latest_export_df, table_mode=export_table_mode, group_type=current_group_type)
+            st.download_button(
+                label="📥 Excel ダウンロード",
+                data=excel_bytes,
+                file_name=f"{export_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_excel_{export_table_mode}_{current_group_type}",
+                use_container_width=True,
+            )
+
+        with exp_c3:
+            st.write("")
+            pdf_bytes = generate_order_pdf(latest_export_df, table_mode=export_table_mode, group_type=current_group_type)
+            st.download_button(
+                label=f"🖨️ A3 PDF ダウンロード（{group_axis_choice[:2]}）",
+                data=pdf_bytes,
+                file_name=f"{export_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                key=f"dl_pdf_{export_table_mode}_{current_group_type}",
+                use_container_width=True,
+            )
+
         cut_cols = [k for k, _, _, _ in CUTTING_COLS_SPEC if k in curr_master.columns] + ["備考"]
         cut_df = filter_df_for_export(curr_master[cut_cols].copy(), table_mode="v3")
 
         cut_col_cfg = {
-            "受注番号": st.column_config.TextColumn("受注番号", disabled=True, width=85, pinned=True),
-            "納期": st.column_config.TextColumn("納期", disabled=True, width=65, pinned=True),
-            "判型": st.column_config.TextColumn("判型", disabled=True, width=65, pinned=True),
-            "納期2": st.column_config.TextColumn("納期2", disabled=True, width=65),
-            "急ぎ": st.column_config.TextColumn("急ぎ", disabled=True, width=55),
-            "出版社名": st.column_config.TextColumn("出版社名", disabled=True, width=80),
-            "書名": st.column_config.TextColumn("書名", disabled=True, width=220),
+            "受注番号": st.column_config.TextColumn("受注", disabled=True, width=70, pinned=True),
+            "納期": st.column_config.TextColumn("納期", disabled=True, width=56, pinned=True),
+            "判型": st.column_config.TextColumn("判型", disabled=True, width=56, pinned=True),
+            "納期2": st.column_config.TextColumn("納2", disabled=True, width=56),
+            "急ぎ": st.column_config.TextColumn("急ぎ", disabled=True, width=50),
+            "出版社名": st.column_config.TextColumn("出版", disabled=True, width=70),
+            "書名": st.column_config.TextColumn("書名", disabled=True, width=200),
             "備考": st.column_config.TextColumn("備考", disabled=True, width=180),
         }
 
         if len(cut_df) > 0:
             st.dataframe(
                 cut_df,
+                height=TABLE_HEIGHT_30_ROWS,
                 key="viewer_tab_cutting_v3",
                 use_container_width=False,
                 column_config=cut_col_cfg,
@@ -1230,47 +1280,5 @@ if len(curr_master) > 0:
             )
         else:
             st.info("ℹ️ 表紙・カード・カバー・帯のいずれかに該当する断裁対象レコードはありません。")
-
-    # ==========================================
-    # 8. 帳票出力エリア（一覧表② / ③断裁用・PDF / Excel）
-    # ==========================================
-    st.markdown("---")
-    st.subheader("📤 帳票出力（PDF / Excel）")
-
-    exp_c1, exp_c2, exp_c3 = st.columns([1.2, 1.5, 1.5])
-    with exp_c1:
-        export_mode_choice = st.selectbox(
-            "出力帳票の種類",
-            options=["受注一覧表②（全工程）", "受注一覧表③（断裁用）"],
-            index=0,
-            key="export_mode_select"
-        )
-    export_table_mode = "v2" if "②" in export_mode_choice else "v3"
-    export_prefix = "受注一覧表2" if export_table_mode == "v2" else "受注一覧表3断裁用"
-
-    # 帳票出力用に最新の master_df_current を渡す
-    latest_export_df = st.session_state["master_df_current"].copy()
-
-    with exp_c2:
-        excel_bytes = generate_order_excel(latest_export_df, table_mode=export_table_mode, group_type=current_group_type)
-        st.download_button(
-            label="📥 Excel でダウンロード",
-            data=excel_bytes,
-            file_name=f"{export_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"dl_excel_{export_table_mode}_{current_group_type}",
-            use_container_width=True,
-        )
-
-    with exp_c3:
-        pdf_bytes = generate_order_pdf(latest_export_df, table_mode=export_table_mode, group_type=current_group_type)
-        st.download_button(
-            label=f"🖨️ A3 PDF ダウンロード（{group_axis_choice[:2]}）",
-            data=pdf_bytes,
-            file_name=f"{export_prefix}_{current_group_type}_{date.today().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf",
-            key=f"dl_pdf_{export_table_mode}_{current_group_type}",
-            use_container_width=True,
-        )
 else:
     st.warning("⚠️ 条件に一致するデータが見つかりませんでした。")
