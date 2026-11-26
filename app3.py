@@ -909,7 +909,7 @@ if "master_df_baseline" not in st.session_state or st.session_state.get("master_
     st.session_state["master_sig"] = data_signature
 
 def get_compact_2char_column_config() -> dict:
-    """画面表示ラベルを2文字表現に簡素化した column_config"""
+    """画面表示ラベルを2文字表現に簡素化し、書名・備考を10文字幅に設定した column_config"""
     return {
         "_row_key": None,
         "_record_idx": None,
@@ -962,7 +962,7 @@ def get_compact_2char_column_config() -> dict:
         "書名": st.column_config.TextColumn(
             "書名",
             disabled=True,
-            width=char_to_px(7.0, min_px=112),
+            width=char_to_px(10.0, min_px=152),
             pinned=True,
         ),
         "製本数": st.column_config.TextColumn(
@@ -985,8 +985,8 @@ def get_compact_2char_column_config() -> dict:
         "三方日": st.column_config.TextColumn("三方", width=char_to_px(2.5, min_px=52), help="三方日（1126, 125, 11/26）"),
         "仕上日": st.column_config.TextColumn("仕上", width=char_to_px(2.5, min_px=52), help="仕上日（1126, 125, 11/26）"),
         "納品日": st.column_config.TextColumn("納品", width=char_to_px(2.5, min_px=52), help="納品日（1126, 125, 11/26）"),
-        # 備考
-        "備考": st.column_config.TextColumn("備考", width=char_to_px(8.0, min_px=125)),
+        # 備考（10文字幅）
+        "備考": st.column_config.TextColumn("備考", width=char_to_px(10.0, min_px=152)),
     }
 
 def sync_tab_edits_to_master(edited_sub_df: pd.DataFrame, editable_cols: list[str]) -> tuple[bool, list[str]]:
@@ -1057,7 +1057,6 @@ def apply_auto_diff_save(tab_mode: str):
                 error_messages.append(f"受注 {clean_val(row.get('受注番号', ''))}: _recordId が見つかりません")
                 continue
 
-            # 正常動作していたコードと同一の構造でサブテーブルと本体フィールドを組み立てる
             sub_90_item = {
                 "record": {
                     "field-90_3": date_to_api_str(row.get("折本日")),
@@ -1241,8 +1240,8 @@ if len(curr_master) > 0:
             "納期2": st.column_config.TextColumn("納2", disabled=True, width=56),
             "急ぎ": st.column_config.TextColumn("急ぎ", disabled=True, width=50),
             "出版社名": st.column_config.TextColumn("出版", disabled=True, width=70),
-            "書名": st.column_config.TextColumn("書名", disabled=True, width=200),
-            "備考": st.column_config.TextColumn("備考", disabled=True, width=180),
+            "書名": st.column_config.TextColumn("書名", disabled=True, width=char_to_px(10.0, min_px=152)),
+            "備考": st.column_config.TextColumn("備考", disabled=True, width=char_to_px(10.0, min_px=152)),
         }
 
         if len(cut_df) > 0:
