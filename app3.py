@@ -1016,25 +1016,11 @@ def sync_tab_edits_to_master(edited_sub_df: pd.DataFrame, editable_cols: list[st
     st.session_state["master_df_current"] = master_curr
     return (len(errors) == 0), errors
 
-def count_changed_rows(tab_mode: str) -> int:
-    base_df = st.session_state["master_df_baseline"]
-    curr_df = st.session_state["master_df_current"]
-    if tab_mode == "material":
-        watched_cols = ["納期2", "急ぎ", "見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付", "備考"]
-    else:
-        watched_cols = ["納期2", "急ぎ", "刷本日", "折本日", "無線日", "三方日", "仕上日", "納品日", "備考"]
-
-    base_map = {row["_row_key"]: row for _, row in base_df.iterrows()}
-    cnt = 0
-    for _, crow in curr_df.iterrows():
-        brow = base_map.get(crow["_row_key"])
-        if brow is None:
-            continue
-        if any(clean_val(brow.get(col, "")) != clean_val(crow.get(col, "")) for col in watched_cols):
-            cnt += 1
-    return cnt
-
 def apply_auto_diff_save(tab_mode: str):
+    """
+    問題なく動いていたコードと同一の payload 構造（field-2 必須＋field-90・field-91 両方送信）で
+    変更行だけを自動検知して @ポケット API へ保存する。
+    """
     base_df = st.session_state["master_df_baseline"]
     curr_df = st.session_state["master_df_current"]
 
@@ -1071,46 +1057,42 @@ def apply_auto_diff_save(tab_mode: str):
                 error_messages.append(f"受注 {clean_val(row.get('受注番号', ''))}: _recordId が見つかりません")
                 continue
 
-            if tab_mode == "material":
-                sub_91_item = {
-                    "record": {
-                        "field-91_1": date_to_api_str(row.get("表紙日付")),
-                        "field-91_9": date_to_api_str(row.get("カード日")),
-                        "field-91_5": date_to_api_str(row.get("カバ日付")),
-                        "field-91_13": date_to_api_str(row.get("帯日付")),
-                    }
+            # 正常動作していたコードと同一の構造でサブテーブルと本体フィールドを組み立てる
+            sub_90_item = {
+                "record": {
+                    "field-90_3": date_to_api_str(row.get("折本日")),
+                    "field-90_4": date_to_api_str(row.get("無線日")),
+                    "field-90_5": date_to_api_str(row.get("三方日")),
+                    "field-90_6": date_to_api_str(row.get("仕上日")),
+                    "field-90_10": date_to_api_str(row.get("納品日")),
                 }
-                if sub_91_id:
-                    sub_91_item["Id"] = sub_91_id
+            }
+            if sub_90_id:
+                sub_90_item["Id"] = sub_90_id
 
-                payload = {
-                    "field-54": date_to_api_str(row.get("見本日")),
-                    "field-56": date_to_api_str(row.get("配本日")),
-                    "field-102": clean_val(row.get("納期2", "")),
-                    "field-103": clean_val(row.get("急ぎ", "")),
-                    "field-45": clean_val(row.get("備考", "")),
-                    "field-91": [sub_91_item],
+            sub_91_item = {
+                "record": {
+                    "field-91_1": date_to_api_str(row.get("表紙日付")),
+                    "field-91_9": date_to_api_str(row.get("カード日")),
+                    "field-91_5": date_to_api_str(row.get("カバ日付")),
+                    "field-91_13": date_to_api_str(row.get("帯日付")),
                 }
-            else:
-                sub_90_item = {
-                    "record": {
-                        "field-90_3": date_to_api_str(row.get("折本日")),
-                        "field-90_4": date_to_api_str(row.get("無線日")),
-                        "field-90_5": date_to_api_str(row.get("三方日")),
-                        "field-90_6": date_to_api_str(row.get("仕上日")),
-                        "field-90_10": date_to_api_str(row.get("納品日")),
-                    }
-                }
-                if sub_90_id:
-                    sub_90_item["Id"] = sub_90_id
+            }
+            if sub_91_id:
+                sub_91_item["Id"] = sub_91_id
 
-                payload = {
-                    "field-51": date_to_api_str(row.get("刷本日")),
-                    "field-102": clean_val(row.get("納期2", "")),
-                    "field-103": clean_val(row.get("急ぎ", "")),
-                    "field-45": clean_val(row.get("備考", "")),
-                    "field-90": [sub_90_item],
-                }
+            payload = {
+                "field-2": clean_val(row.get("受注番号", "")),
+                "field-54": date_to_api_str(row.get("見本日")),
+                "field-56": date_to_api_str(row.get("配本日")),
+                "field-102": clean_val(row.get("納期2", "")),
+                "field-103": clean_val(row.get("急ぎ", "")),
+                "field-28": clean_val(row.get("刷数", "")),
+                "field-51": date_to_api_str(row.get("刷本日")),
+                "field-45": clean_val(row.get("備考", "")),
+                "field-90": [sub_90_item],
+                "field-91": [sub_91_item],
+            }
 
             ok, msg = update_pocket_record(r_id, payload)
             if ok:
@@ -1142,12 +1124,6 @@ if len(curr_master) > 0:
         mat_date_cols = ["見本日", "配本日", "表紙日付", "カード日", "カバ日付", "帯日付"]
         mat_view_cols = fixed_cols + mat_date_cols + ["備考"]
         mat_df = curr_master[mat_view_cols].copy()
-
-        # 先に前回編集分があれば反映してから件数算出
-        prev_mat_key = "editor_tab_material"
-        if prev_mat_key in st.session_state and isinstance(st.session_state[prev_mat_key], dict):
-            # data_editor の state がある場合は一旦反映
-            pass
 
         act_c1, act_c2, act_c3 = st.columns([1.8, 1.5, 4.7])
         with act_c1:
