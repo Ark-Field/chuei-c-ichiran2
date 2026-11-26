@@ -1113,8 +1113,8 @@ if len(curr_master) > 0:
     col_cfg = get_compact_2char_column_config()
 
     tab_mat, tab_proc, tab_cut = st.tabs([
-        "📦 ① 資材・納入",
-        "⚙️ ② 工程・製造",
+        "📦 ① 表紙・カード・カバー・帯/日付更新",
+        "⚙️ ② 刷本・折本・無線・三方・仕上/日付更新",
         "✂️ ③ 受注一覧表/断裁一覧表・閲覧/印刷"
     ])
 
