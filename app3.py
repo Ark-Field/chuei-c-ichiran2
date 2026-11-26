@@ -806,7 +806,7 @@ if search_clicked:
 # ==========================================
 top_h1, top_h2 = st.columns([3, 1])
 with top_h1:
-    st.markdown("### 📋 受注一覧表（タブ①②日付入力更新 ／③断裁用一覧表/印刷）")
+    st.markdown("### 📋 受注一覧表（タブ①②日付入力更新 ／③受注一覧表OR断裁用一覧表の印刷）")
 with top_h2:
     fs_toggle = st.toggle("🖥️ フルスクリーン", value=st.session_state["fullscreen_mode"], key="fs_main_switch_unified")
     if fs_toggle != st.session_state["fullscreen_mode"]:
@@ -1192,7 +1192,7 @@ if len(curr_master) > 0:
 
     # --- タブ③：受注一覧表③断裁用（閲覧＋帳票出力） ---
     with tab_cut:
-        st.markdown("#### ✂️ 受注一覧表③断裁用（表紙・カード・カバー・帯の有無確認）")
+        st.markdown("#### ✂️ 受注一覧表/断裁一覧表用（エクセル/PDF-A3サイズ）")
 
         latest_export_df = st.session_state["master_df_current"].copy()
         exp_c1, exp_c2, exp_c3 = st.columns([1.4, 1.5, 1.5])
